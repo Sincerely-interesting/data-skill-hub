@@ -1,0 +1,112 @@
+# ============================================================
+# E-commerce Multimodal Material Processor - Dependencies
+# ============================================================
+#
+# Installation:
+#   pip install -r requirements.txt
+#
+# Prerequisites:
+#   - Python >= 3.9
+#   - ffmpeg (for video frame extraction, must be installed separately)
+#     Download: https://ffmpeg.org/download.html
+#     Verify: ffmpeg -version
+#
+# ============================================================
+
+# --- Core Dependencies (Required) ---
+# These packages are required for basic functionality.
+
+openai>=1.30.0              # OpenAI-compatible API client (async support)
+pandas>=2.0.0               # Data manipulation and Excel export
+openpyxl>=3.1.0             # Excel file writing (.xlsx format)
+tqdm>=4.66.0                # Progress bars for batch processing
+Pillow>=10.0.0              # Image processing and validation
+opencv-python>=4.8.0        # Image/Video processing (OpenCV)
+python-dotenv>=1.0.0        # Environment variable management (.env files)
+pydantic>=2.5.0             # Data validation and settings management
+pydantic-settings>=2.1.0    # Pydantic settings integration
+loguru>=0.7.0               # Structured logging with rotation
+httpx>=0.25.0               # Async HTTP client (used by openai)
+aiofiles>=23.2.0            # Async file I/O operations
+asyncio-pool>=0.6.0         # Async task pool management
+xlrd>=2.0.1                 # Excel file reading (.xls format)
+
+# --- Video Processing (Required for Video Support) ---
+# Note: This is a Python wrapper. You MUST install ffmpeg binary separately.
+# Video materials cannot be processed without ffmpeg.
+
+ffmpeg-python>=0.2.0        # Python interface to ffmpeg CLI tools
+                            # Install ffmpeg: https://ffmpeg.org/download.html
+                            # Windows: Add ffmpeg/bin to system PATH
+                            # macOS: brew install ffmpeg
+                            # Linux: sudo apt install ffmpeg
+
+# --- Vector Database & Search (Optional, for Advanced Features) ---
+# These are optional but recommended for production deployments.
+
+lance>=0.7.0                # LanceDB vector database (optional, for search)
+sentence-transformers>=2.3.0  # Text embedding models (optional)
+numpy>=1.24.0               # Numerical computing (required by sentence-transformers)
+
+# --- Web Framework (Optional, for REST API Service) ---
+# Required only if you want to run the REST API server.
+
+fastapi>=0.104.0            # FastAPI web framework (for api_service.py)
+uvicorn[standard]>=0.24.0   # ASGI server (for running FastAPI app)
+
+# --- Experimental Features (Under Development) ---
+# Uncomment these if you need experimental functionality.
+# Status: Not fully implemented in current version (v1.x)
+
+# MCP Protocol Support (Experimental)
+# Required for: minmax_mcp provider (MiniMax MCP protocol)
+# Current Status: Configuration defined, implementation pending
+# mcp-client>=0.1.0         # MCP client library (experimental - DO NOT UNCOMMENT YET)
+
+# --- Development & Testing (Recommended for Development) ---
+
+pytest>=7.4.0              # Unit testing framework
+pytest-asyncio>=0.21.0     # Async test support
+pytest-cov>=4.1.0          # Test coverage reporting
+black>=23.0.0               # Code formatting (optional)
+isort>=5.12.0               # Import sorting (optional)
+mypy>=1.5.0                 # Type checking (optional)
+
+# ============================================================
+# Dependency Categories Summary:
+# ============================================================
+# ✅ Core (Required): 
+#    openai, pandas, openpyxl, tqdm, Pillow, opencv-python,
+#    python-dotenv, pydantic, pydantic-settings, loguru,
+#    httpx, aiofiles, asyncio-pool, xlrd
+#
+# ✅ Video Processing (Required for video materials):
+#    ffmpeg-python (requires ffmpeg binary installation)
+#
+# 🔵 Optional (Advanced features):
+#    lance, sentence-transformers, numpy (vector search)
+#    fastapi, uvicorn (REST API service)
+#
+# ⚠️  Experimental (Under Development):
+#    mcp-client (MCP protocol - NOT READY)
+#
+# 🔧 Dev Tools (For development only):
+#    pytest, pytest-asyncio, pytest-cov, black, isort, mypy
+#
+# ============================================================
+# Quick Install Commands:
+# ============================================================
+# Basic install (core + video):
+#   pip install -r requirements.txt
+#
+# Full install (including optional):
+#   pip install -r requirements.txt
+#   # Note: Experimental packages are commented out
+#
+# Development install:
+#   pip install -r requirements.txt
+#   pip install black isort mypy pytest-cov
+#
+# Verify ffmpeg installation:
+#   ffmpeg -version  # Should show version info
+# ============================================================
