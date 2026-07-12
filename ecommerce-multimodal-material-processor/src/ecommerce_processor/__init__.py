@@ -1,4 +1,4 @@
-"""
+﻿"""
 电商多模态素材处理引擎 (E-commerce Multimodal Material Processor)
 
 独立可运行的企业级素材处理流水线：
@@ -59,7 +59,7 @@ __all__ = [
     "CacheExporter",
     
     # 视频处理
-    "VideoProcessor",
+
     "extract_video_frames",
     "pick_evenly",
     "get_video_info",

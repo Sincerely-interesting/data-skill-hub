@@ -1,3 +1,4 @@
+﻿import os
 """
 缓存导出器 - 将JSON缓存导出为Excel格式
 """
@@ -172,7 +173,7 @@ class CacheExporter:
             import os
             try:
                 os.close(temp_fd)
-                Path(temp_path).rename(output_path)
+                os.replace(str(temp_path), str(output_path))
             except Exception as e:
                 # 清理临时文件
                 try:

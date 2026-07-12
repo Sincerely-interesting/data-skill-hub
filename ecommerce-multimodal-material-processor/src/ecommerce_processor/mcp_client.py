@@ -1,4 +1,4 @@
-"""
+﻿"""
 MiniMax MCP (Model Context Protocol) 客户端模块
 
 基于原项目 minimax_mcp_v2_label_materials.py 和 
@@ -762,7 +762,7 @@ class MultimodalMaterialProcessor:
     """
     多模态素材处理器（整合MCP + 视频 + 音频）
     
-    将MCP客户端、视频抽帧、音频提取、语音转录整合为统一的工作流，
+    将MCP客户端、视频直接分析、音频提取、语音转录整合为统一的工作流，
     用于处理包含图片、视频、音频的复杂素材。
     
     基于原项目minimax_mcp_multimodal_label_materials.py的完整实现。
@@ -780,7 +780,7 @@ class MultimodalMaterialProcessor:
         
         Args:
             mcp_client: MiniMax MCP客户端实例
-            enable_video_processing: 是否启用视频处理（抽帧+分析）
+            enable_video_processing: 是否启用视频处理（VLM直接分析）
             enable_audio_transcription: 是否启用音频转录（需要Whisper）
             whisper_api_key: OpenAI API Key（用于Whisper API，可选）
         """
@@ -813,7 +813,7 @@ class MultimodalMaterialProcessor:
         工作流程：
         1. 扫描文件夹，识别媒体类型
         2. 对图片：直接MCP分析
-        3. 对视频：抽帧 → MCP分析各帧 → （可选）音频提取+转录
+        3. 对视频：直接传给VLM进行模板分析 → （可选）音频提取+转录
         4. 合并所有分析结果
         
         Args:
