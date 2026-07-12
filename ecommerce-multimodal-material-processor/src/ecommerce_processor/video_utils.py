@@ -86,7 +86,7 @@ def extract_video_frames(
     # 构建输出文件名模板
     output_pattern = output_dir / f"frame_%04d.{image_format}"
     
-    logger.info(f"🎬 开始抽帧: {video_path.name}")
+    logger.info(f" 开始抽帧: {video_path.name}")
     logger.info(f"   FPS: {fps}, 最大帧数: {max_frames}, 格式: {image_format}")
     
     try:
@@ -117,14 +117,14 @@ def extract_video_frames(
         # 收集生成的帧文件
         frames = sorted(output_dir.glob(f"frame_*.{image_format}"))
         
-        logger.success(f"✅ 抽帧完成: {len(frames)} 帧 → {output_dir}/")
+        logger.success(f" 抽帧完成: {len(frames)} 帧 → {output_dir}/")
         
         return frames
         
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"视频抽帧超时（>{300}秒）: {video_path}")
     except Exception as e:
-        logger.error(f"❌ 抽帧失败: {e}")
+        logger.error(f" 抽帧失败: {e}")
         raise
 
 
@@ -172,7 +172,7 @@ def pick_evenly(
     
     sampled_frames = [frames[i] for i in sampled_indices]
     
-    logger.debug(f"📊 帧采样: {total}帧 → {len(sampled_frames)}帧 (间隔={step:.1f})")
+    logger.debug(f" 帧采样: {total}帧 → {len(sampled_frames)}帧 (间隔={step:.1f})")
     
     return sampled_frames
 
@@ -264,7 +264,7 @@ def get_video_info(video_path: Path) -> dict:
             "path": str(video_path),
         }
         
-        logger.debug(f"📹 视频信息: {video_path.name} - {duration:.1f}s, {video_info['width']}x{video_info['height']}, {fps:.1f}fps")
+        logger.debug(f" 视频信息: {video_path.name} - {duration:.1f}s, {video_info['width']}x{video_info['height']}, {fps:.1f}fps")
         
         return video_info
         
@@ -288,9 +288,9 @@ def cleanup_temp_frames(output_dir: Path) -> None:
     
     try:
         shutil.rmtree(output_dir)
-        logger.debug(f"🧹 已清理临时帧目录: {output_dir}")
+        logger.debug(f" 已清理临时帧目录: {output_dir}")
     except Exception as e:
-        logger.warning(f"⚠️ 清理临时帧目录失败: {e}")
+        logger.warning(f" 清理临时帧目录失败: {e}")
 
 
 class VideoProcessor:
@@ -368,7 +368,7 @@ class VideoProcessor:
             sampled_frames = pick_evenly(all_frames, target_count=target_count)
             
             logger.info(
-                f"🎬 视频处理完成: {video_path.name} "
+                f" 视频处理完成: {video_path.name} "
                 f"({video_info['duration']}s) → {len(sampled_frames)}帧"
             )
             
@@ -401,7 +401,7 @@ class VideoProcessor:
                 result = self.process_video(video_path, **kwargs)
                 results.append(result)
             except Exception as e:
-                logger.error(f"❌ 视频处理失败 {video_path}: {e}")
+                logger.error(f" 视频处理失败 {video_path}: {e}")
                 results.append(([], {"error": str(e)}))
         
         return results
@@ -438,7 +438,7 @@ if __name__ == "__main__":
     
     if args.info:
         info = get_video_info(video_path)
-        print("\n📹 视频信息:")
+        print("\n 视频信息:")
         print(f"   文件: {info['path']}")
         print(f"   时长: {info['duration']}秒")
         print(f"   分辨率: {info['width']}x{info['height']}")
@@ -454,7 +454,7 @@ if __name__ == "__main__":
                 target_count=args.target_count,
             )
             
-            print(f"\n✅ 处理完成:")
+            print(f"\n 处理完成:")
             print(f"   视频: {video_path.name}")
             print(f"   采样帧数: {len(frames)}")
             print(f"   帧文件:")

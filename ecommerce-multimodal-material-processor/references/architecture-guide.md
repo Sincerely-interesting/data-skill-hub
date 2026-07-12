@@ -82,10 +82,10 @@ class Settings(BaseSettings):
 ```
 
 **特性**:
-- ✅ 类型安全的配置管理
-- ✅ 自动从.env文件加载
-- ✅ 支持环境变量覆盖
-- ✅ 运行时验证配置合法性
+-  类型安全的配置管理
+-  自动从.env文件加载
+-  支持环境变量覆盖
+-  运行时验证配置合法性
 
 **使用示例**:
 ```python
@@ -660,14 +660,14 @@ class DependencyChecker:
         if ffmpeg_path is None:
             warnings.append("ffmpeg未安装,视频处理功能将不可用")
         else:
-            logger.info(f"✅ ffmpeg已安装: {ffmpeg_path}")
+            logger.info(f" ffmpeg已安装: {ffmpeg_path}")
         
         # 4. API Key配置检查
         configured = settings.validate_provider_config()
         if len(configured) == 0:
             errors.append("未配置任何Provider的API Key,请编辑.env文件")
         else:
-            logger.info(f"✅ 已配置 {len(configured)} 个Provider: {', '.join(configured)}")
+            logger.info(f" 已配置 {len(configured)} 个Provider: {', '.join(configured)}")
         
         # 5. 目录权限检查
         output_dirs = [
@@ -797,10 +797,10 @@ async def handle_rate_limit(self, error):
 
 ### 1. API Key保护
 
-- ❌ 禁止硬编码在代码中
-- ✅ 使用环境变量或`.env`文件
-- ✅ `.env`文件加入`.gitignore`
-- ✅ 日志中脱敏显示(`sk-***abc`)
+-  禁止硬编码在代码中
+-  使用环境变量或`.env`文件
+-  `.env`文件加入`.gitignore`
+-  日志中脱敏显示(`sk-***abc`)
 
 ### 2. 文件操作安全
 
@@ -827,9 +827,9 @@ from ecommerce_processor.labeler import MaterialLabeler
 
 def test_extract_label_valid():
     labeler = MaterialLabeler()
-    response = '{"label": "空镜草稿(核心款)", "confidence": 0.95}'
+    response = '{"label": "穿搭精选(核心)", "confidence": 0.95}'
     result = labeler.extract_label(response)
-    assert result["primary"] == "空镜草稿(核心款)"
+    assert result["primary"] == "穿搭精选(核心)"
     assert result["confidence"] == 0.95
 
 def test_extract_label_invalid():
@@ -981,11 +981,11 @@ services:
 
 ## 未来演进路线
 
-### Phase 1: 当前版本(v2.0) ✅
-- ✅ 多Provider支持(8种)
-- ✅ MCP协议集成
-- ✅ 视频音频处理
-- ✅ 向量检索服务
+### Phase 1: 当前版本(v2.0) 
+-  多Provider支持(8种)
+-  MCP协议集成
+-  视频音频处理
+-  向量检索服务
 
 ### Phase 2: 近期规划(v2.5)
 - [ ] Web UI界面(Streamlit/FastAPI)

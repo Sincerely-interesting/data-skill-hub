@@ -1,7 +1,7 @@
 """
 电商多模态素材处理 - REST API 服务（开发中）
 
-> ⚠️ 此模块正在开发中，当前版本为占位实现。
+>  此模块正在开发中，当前版本为占位实现。
 > 完整功能预计在 v2.0 版本提供。
 
 功能规划：
@@ -110,8 +110,7 @@ def get_app():
         FastAPI app or None: 如果依赖可用返回app实例，否则返回None
     """
     if not _DEPENDENCIES_AVAILABLE:
-        print(f"⚠️  API Service 不可用: {_IMPORT_ERROR}")
-        print("   请先安装依赖: pip install -r requirements.txt")
+        print(f"  [可选] API Service 未启用（缺少依赖: {_IMPORT_ERROR}），不影响 CLI 打标/归档功能。")
         return None
     return app
 
@@ -119,7 +118,7 @@ def get_app():
 if __name__ == "__main__":
     if not _DEPENDENCIES_AVAILABLE:
         print("=" * 60)
-        print("❌ API Service 无法启动")
+        print("  API Service 启动跳过（可选模块）")
         print(f"\n错误: {_IMPORT_ERROR}")
         print("\n解决方案:")
         print("  1. 安装所有依赖:")
@@ -134,7 +133,7 @@ if __name__ == "__main__":
     import uvicorn
     
     print("=" * 60)
-    print("⚠️  API Service is UNDER DEVELOPMENT")
+    print("  API Service is UNDER DEVELOPMENT")
     print("   Current version: 0.1.0-dev")
     print("   For production use, please use the CLI interface:")
     print("   python run_pipeline.py --help")

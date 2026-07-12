@@ -93,7 +93,7 @@ class MiniMaxMCPClient:
         }
         
         logger.info(
-            f"🔌 MiniMax MCP客户端初始化 | "
+            f" MiniMax MCP客户端初始化 | "
             f"模型: {self.model} | "
             f"MCP模式: {'启用' if self.use_mcp else '禁用'} | "
             f"Base URL: {self.base_url}"
@@ -163,12 +163,12 @@ class MiniMaxMCPClient:
             image_path = Path(image_path)
             
             if not image_path.exists():
-                logger.error(f"❌ 图片文件不存在: {image_path}")
+                logger.error(f" 图片文件不存在: {image_path}")
                 return None
             
             file_size = image_path.stat().st_size
             if file_size == 0 or file_size < 100:
-                logger.warning(f"⚠️  图片文件过小或为空: {image_path} ({file_size} bytes)")
+                logger.warning(f"  图片文件过小或为空: {image_path} ({file_size} bytes)")
                 return None
             
             # 验证并加载图片
@@ -188,7 +188,7 @@ class MiniMaxMCPClient:
                 ratio = max_size / float(max(img.size))
                 new_size = tuple([int(x * ratio) for x in img.size])
                 img = img.resize(new_size, Image.Resampling.LANCZOS)
-                logger.debug(f"📐 图片缩放: {img.size} → {new_size}")
+                logger.debug(f" 图片缩放: {img.size} → {new_size}")
             
             # 编码为JPEG格式的base64
             img_byte_arr = BytesIO()
@@ -196,14 +196,14 @@ class MiniMaxMCPClient:
             encoded = base64.b64encode(img_byte_arr.getvalue()).decode("utf-8")
             
             logger.debug(
-                f"🖼️  图片编码成功: {image_path.name} "
+                f"  图片编码成功: {image_path.name} "
                 f"({img.size[0]}x{img.size[1]}, {len(encoded)//1024}KB)"
             )
             
             return encoded
             
         except Exception as e:
-            logger.error(f"❌ 图片编码失败 {image_path}: {e}")
+            logger.error(f" 图片编码失败 {image_path}: {e}")
             return None
     
     async def understand_image_via_mcp(
@@ -237,7 +237,7 @@ class MiniMaxMCPClient:
             quality=self.image_quality,
         )
         if not encoded:
-            logger.error(f"❌ [REQ-{request_id}] 图片编码失败")
+            logger.error(f" [REQ-{request_id}] 图片编码失败")
             return None
         
         # 构建base64 data URL
@@ -268,7 +268,7 @@ class MiniMaxMCPClient:
             ],
         }
         
-        logger.info(f"🔍 [REQ-{request_id}] 开始MCP图片分析: {image_path.name}")
+        logger.info(f" [REQ-{request_id}] 开始MCP图片分析: {image_path.name}")
         
         last_error = None
         for attempt in range(1, self.max_retries + 1):
@@ -288,7 +288,7 @@ class MiniMaxMCPClient:
                     if response.status_code != 200:
                         error_text = response.text[:300]
                         logger.error(
-                            f"❌ [REQ-{request_id}] API错误 "
+                            f" [REQ-{request_id}] API错误 "
                             f"(HTTP {response.status_code}): {error_text}"
                         )
                         last_error = Exception(f"API错误 {response.status_code}: {error_text}")
@@ -304,7 +304,7 @@ class MiniMaxMCPClient:
                         if message.get('content'):
                             content = message['content'].strip()
                             logger.success(
-                                f"✅ [REQ-{request_id}] MCP分析完成 "
+                                f" [REQ-{request_id}] MCP分析完成 "
                                 f"(直接返回内容, {len(content)}字符)"
                             )
                             self._stats["success_count"] += 1
@@ -313,7 +313,7 @@ class MiniMaxMCPClient:
                         # 情况2: 返回tool_calls（标准MCP流程）
                         if message.get('tool_calls'):
                             logger.info(
-                                f"📋 [REQ-{request_id}] 收到tool_calls响应"
+                                f" [REQ-{request_id}] 收到tool_calls响应"
                             )
                             
                             # 提取第一个tool_call的结果
@@ -325,7 +325,7 @@ class MiniMaxMCPClient:
                             if 'result' in tool_call:
                                 result = tool_call['result']
                                 logger.success(
-                                    f"✅ [REQ-{request_id}] MCP分析完成 "
+                                    f" [REQ-{request_id}] MCP分析完成 "
                                     f"(tool_call结果, {len(str(result))}字符)"
                                 )
                                 self._stats["success_count"] += 1
@@ -334,24 +334,24 @@ class MiniMaxMCPClient:
                             # 如果没有明确的结果字段，返回content或空
                             fallback_content = message.get('content', 'MCP调用已执行但未返回明确结果')
                             logger.warning(
-                                f"⚠️  [REQ-{request_id}] tool_calls无明确结果字段"
+                                f"  [REQ-{request_id}] tool_calls无明确结果字段"
                             )
                             self._stats["success_count"] += 1
                             return fallback_content if fallback_content else None
                     
-                    logger.warning(f"⚠️  [REQ-{request_id}] 响应格式异常")
+                    logger.warning(f"  [REQ-{request_id}] 响应格式异常")
                     return None
                     
             except httpx.TimeoutException:
                 last_error = Exception("请求超时")
-                logger.warning(f"⚠️  [REQ-{request_id}] 第{attempt}次超时")
+                logger.warning(f"  [REQ-{request_id}] 第{attempt}次超时")
             except Exception as e:
                 last_error = e
-                logger.error(f"❌ [REQ-{request_id}] 第{attempt}次异常: {e}", exc_info=True)
+                logger.error(f" [REQ-{request_id}] 第{attempt}次异常: {e}", exc_info=True)
         
         # 所有重试失败
         self._stats["fail_count"] += 1
-        logger.error(f"❌ [REQ-{request_id}] MCP调用最终失败: {last_error}")
+        logger.error(f" [REQ-{request_id}] MCP调用最终失败: {last_error}")
         return None
     
     async def understand_image_direct(
@@ -381,7 +381,7 @@ class MiniMaxMCPClient:
             quality=self.image_quality,
         )
         if not encoded:
-            logger.error(f"❌ [REQ-{request_id}] 图片编码失败")
+            logger.error(f" [REQ-{request_id}] 图片编码失败")
             return None
         
         # 构建标准多模态请求
@@ -412,7 +412,7 @@ class MiniMaxMCPClient:
             ],
         }
         
-        logger.info(f"🖼️  [REQ-{request_id}] 开始直连图片分析: {image_path.name}")
+        logger.info(f"  [REQ-{request_id}] 开始直连图片分析: {image_path.name}")
         
         last_error = None
         for attempt in range(1, self.max_retries + 1):
@@ -432,7 +432,7 @@ class MiniMaxMCPClient:
                     if response.status_code != 200:
                         error_text = response.text[:300]
                         logger.error(
-                            f"❌ [REQ-{request_id}] API错误 "
+                            f" [REQ-{request_id}] API错误 "
                             f"(HTTP {response.status_code}): {error_text}"
                         )
                         last_error = Exception(f"API错误 {response.status_code}: {error_text}")
@@ -445,25 +445,25 @@ class MiniMaxMCPClient:
                         
                         if content and content.strip():
                             logger.success(
-                                f"✅ [REQ-{request_id}] 直连分析完成 ({len(content)}字符)"
+                                f" [REQ-{request_id}] 直连分析完成 ({len(content)}字符)"
                             )
                             self._stats["success_count"] += 1
                             return content.strip()
                         else:
-                            logger.warning(f"⚠️  [REQ-{request_id}] 返回内容为空")
+                            logger.warning(f"  [REQ-{request_id}] 返回内容为空")
                             return None
                     
                     return None
                     
             except httpx.TimeoutException:
                 last_error = Exception("请求超时")
-                logger.warning(f"⚠️  [REQ-{request_id}] 第{attempt}次超时")
+                logger.warning(f"  [REQ-{request_id}] 第{attempt}次超时")
             except Exception as e:
                 last_error = e
-                logger.error(f"❌ [REQ-{request_id}] 第{attempt}次异常: {e}", exc_info=True)
+                logger.error(f" [REQ-{request_id}] 第{attempt}次异常: {e}", exc_info=True)
         
         self._stats["fail_count"] += 1
-        logger.error(f"❌ [REQ-{request_id}] 直连调用最终失败: {last_error}")
+        logger.error(f" [REQ-{request_id}] 直连调用最终失败: {last_error}")
         return None
     
     async def analyze_image(
@@ -498,10 +498,10 @@ class MiniMaxMCPClient:
                 if result:
                     return result, "mcp"
                 
-                logger.warning(f"⚠️  MCP模式失败，尝试降级为直连模式...")
+                logger.warning(f"  MCP模式失败，尝试降级为直连模式...")
                 
             except Exception as e:
-                logger.error(f"❌ MCP模式异常: {e}, 将使用直连模式")
+                logger.error(f" MCP模式异常: {e}, 将使用直连模式")
         
         # 降级为直连模式
         self._stats["direct_calls"] += 1
@@ -560,11 +560,11 @@ class VideoAudioExtractor:
         video_path = Path(video_path)
         
         if not video_path.exists():
-            logger.error(f"❌ 视频文件不存在: {video_path}")
+            logger.error(f" 视频文件不存在: {video_path}")
             return None
         
         if not check_ffmpeg_available():
-            logger.error("❌ ffmpeg未安装或不在PATH中")
+            logger.error(" ffmpeg未安装或不在PATH中")
             return None
         
         # 设置输出目录和文件名
@@ -577,7 +577,7 @@ class VideoAudioExtractor:
         output_filename = f"{video_path.stem}_audio.{output_format}"
         output_path = output_dir / output_filename
         
-        logger.info(f"🎬 开始提取音频: {video_path.name} → {output_filename}")
+        logger.info(f" 开始提取音频: {video_path.name} → {output_filename}")
         
         try:
             # 构建ffmpeg命令（参数优化用于Whisper）
@@ -602,22 +602,22 @@ class VideoAudioExtractor:
             if result.returncode == 0 and output_path.exists():
                 audio_size = output_path.stat().st_size / (1024 * 1024)
                 logger.success(
-                    f"✅ 音频提取成功: {output_filename} ({audio_size:.1f}MB)"
+                    f" 音频提取成功: {output_filename} ({audio_size:.1f}MB)"
                 )
                 return output_path
             else:
                 error_msg = result.stderr.decode('utf-8', errors='ignore')[:200]
-                logger.error(f"❌ 音频提取失败: {error_msg}")
+                logger.error(f" 音频提取失败: {error_msg}")
                 return None
                 
         except subprocess.TimeoutExpired:
-            logger.error(f"❌ 音频提取超时（>5分钟）: {video_path}")
+            logger.error(f" 音频提取超时（>5分钟）: {video_path}")
             return None
         except FileNotFoundError:
-            logger.error("❌ ffmpeg未找到，请确保已安装并在PATH中")
+            logger.error(" ffmpeg未找到，请确保已安装并在PATH中")
             return None
         except Exception as e:
-            logger.error(f"❌ 音频提取异常: {e}", exc_info=True)
+            logger.error(f" 音频提取异常: {e}", exc_info=True)
             return None
 
 
@@ -652,7 +652,7 @@ class WhisperTranscriber:
         self._local_model = None
         
         logger.info(
-            f"🎤 Whisper转录器初始化 | "
+            f" Whisper转录器初始化 | "
             f"语言: {language} | "
             f"模式: {'API' if openai_api_key else '本地'}"
         )
@@ -672,7 +672,7 @@ class WhisperTranscriber:
         audio_path = Path(audio_path)
         
         if not audio_path.exists():
-            logger.error(f"❌ 音频文件不存在: {audio_path}")
+            logger.error(f" 音频文件不存在: {audio_path}")
             return None
         
         # 优先使用API模式
@@ -692,7 +692,7 @@ class WhisperTranscriber:
                 "Authorization": f"Bearer {self.openai_api_key}",
             }
             
-            logger.info(f"🌐 使用Whisper API转录: {audio_path.name}")
+            logger.info(f" 使用Whisper API转录: {audio_path.name}")
             
             async with httpx.AsyncClient(timeout=120) as client:
                 with open(audio_path, 'rb') as audio_file:
@@ -707,17 +707,17 @@ class WhisperTranscriber:
                     if response.status_code == 200:
                         data = response.json()
                         text = data.get('text', '').strip()
-                        logger.success(f"✅ Whisper API转录完成 ({len(text)}字符)")
+                        logger.success(f" Whisper API转录完成 ({len(text)}字符)")
                         return text
                     else:
                         logger.error(
-                            f"❌ Whisper API错误 ({response.status_code}): "
+                            f" Whisper API错误 ({response.status_code}): "
                             f"{response.text[:200]}"
                         )
                         return None
                         
         except Exception as e:
-            logger.error(f"❌ Whisper API调用异常: {e}", exc_info=True)
+            logger.error(f" Whisper API调用异常: {e}", exc_info=True)
             return None
     
     async def _transcribe_with_local(self, audio_path: Path) -> Optional[str]:
@@ -725,11 +725,11 @@ class WhisperTranscriber:
         try:
             import whisper
             
-            logger.info(f"💻 使用本地Whisper模型转录: {audio_path.name}")
+            logger.info(f" 使用本地Whisper模型转录: {audio_path.name}")
             
             # 加载模型（懒加载，只加载一次）
             if self._local_model is None:
-                logger.info(f"📥 加载Whisper模型: {self.local_model_name}")
+                logger.info(f" 加载Whisper模型: {self.local_model_name}")
                 self._local_model = whisper.load_model(self.local_model_name)
             
             # 在线程池中运行同步的whisper.transcribe
@@ -744,17 +744,17 @@ class WhisperTranscriber:
             )
             
             text = result.get('text', '').strip()
-            logger.success(f"✅ 本地Whisper转录完成 ({len(text)}字符)")
+            logger.success(f" 本地Whisper转录完成 ({len(text)}字符)")
             return text
             
         except ImportError:
             logger.warning(
-                "⚠️  未安装openai-whisper包，无法使用本地Whisper。"
+                "  未安装openai-whisper包，无法使用本地Whisper。"
                 "安装命令: pip install openai-whisper"
             )
             return None
         except Exception as e:
-            logger.error(f"❌ 本地Whisper异常: {e}", exc_info=True)
+            logger.error(f" 本地Whisper异常: {e}", exc_info=True)
             return None
 
 
@@ -797,7 +797,7 @@ class MultimodalMaterialProcessor:
         )
         
         logger.info(
-            f"🎯 多模态处理器初始化 | "
+            f" 多模态处理器初始化 | "
             f"视频处理: {'启用' if enable_video_processing else '禁用'} | "
             f"音频转录: {'启用' if enable_audio_transcription else '禁用'}"
         )
@@ -835,7 +835,7 @@ class MultimodalMaterialProcessor:
         material_id = material_folder.name
         
         logger.info(f"\n{'='*60}")
-        logger.info(f"📁 开始处理素材: {material_id}")
+        logger.info(f" 开始处理素材: {material_id}")
         logger.info(f"{'='*60}\n")
         
         # 扫描文件夹内容
@@ -847,7 +847,7 @@ class MultimodalMaterialProcessor:
             videos.extend(material_folder.glob(ext))
         
         if not images and not videos:
-            logger.warning(f"⚠️  空文件夹: {material_id}")
+            logger.warning(f"  空文件夹: {material_id}")
             return {
                 "material_id": material_id,
                 "media_type": "empty",
@@ -857,7 +857,7 @@ class MultimodalMaterialProcessor:
         
         # 判断媒体类型
         media_type = "mixed" if (images and videos) else ("video" if videos else "image")
-        logger.info(f"📂 媒体类型: {media_type} | 图片: {len(images)}个 | 视频: {len(videos)}个")
+        logger.info(f" 媒体类型: {media_type} | 图片: {len(images)}个 | 视频: {len(videos)}个")
         
         results = {
             "material_id": material_id,
@@ -881,7 +881,7 @@ class MultimodalMaterialProcessor:
         # 处理图片
         for img_path in images[:5]:  # 最多处理5张图片
             try:
-                logger.info(f"🖼️  分析图片 [{images.index(img_path)+1}/{min(len(images),5)}]: {img_path.name}")
+                logger.info(f"  分析图片 [{images.index(img_path)+1}/{min(len(images),5)}]: {img_path.name}")
                 result, mode = await self.mcp_client.analyze_image(img_path, analysis_prompt)
                 
                 if result:
@@ -896,7 +896,7 @@ class MultimodalMaterialProcessor:
                     results["stats"]["errors"].append(f"图片分析失败: {img_path.name}")
                     
             except Exception as e:
-                logger.error(f"❌ 图片处理异常 {img_path.name}: {e}")
+                logger.error(f" 图片处理异常 {img_path.name}: {e}")
                 results["stats"]["errors"].append(f"图片异常: {img_path.name} - {str(e)}")
         
         # 处理视频（如果启用）
@@ -913,7 +913,7 @@ class MultimodalMaterialProcessor:
                 for idx, video_path in enumerate(videos[:2]):  # 最多处理2个视频
                     try:
                         logger.info(
-                            f"\n🎬 处理视频 [{idx+1}/{min(len(videos),2)}]: {video_path.name}"
+                            f"\n 处理视频 [{idx+1}/{min(len(videos),2)}]: {video_path.name}"
                         )
                         
                         # 抽帧
@@ -921,7 +921,7 @@ class MultimodalMaterialProcessor:
                         results["stats"]["videos_processed"] += 1
                         
                         logger.info(
-                            f"   📹 视频信息: {video_info['duration']}s, "
+                            f"    视频信息: {video_info['duration']}s, "
                             f"{video_info['width']}x{video_info['height']}"
                         )
                         
@@ -930,7 +930,7 @@ class MultimodalMaterialProcessor:
                         for frame_idx, frame_path in enumerate(sampled_frames):
                             try:
                                 logger.info(
-                                    f"   🖼️  分析帧 [{frame_idx+1}/{len(sampled_frames)}]: "
+                                    f"     分析帧 [{frame_idx+1}/{len(sampled_frames)}]: "
                                     f"{frame_path.name}"
                                 )
                                 
@@ -951,7 +951,7 @@ class MultimodalMaterialProcessor:
                                     all_modes.append(mode)
                                     
                             except Exception as e:
-                                logger.error(f"   ❌ 帧分析异常 {frame_path.name}: {e}")
+                                logger.error(f"    帧分析异常 {frame_path.name}: {e}")
                                 results["stats"]["errors"].append(
                                     f"帧异常: {frame_path.name} - {str(e)}"
                                 )
@@ -965,7 +965,7 @@ class MultimodalMaterialProcessor:
                         # 音频提取和转录（如果启用）
                         if self.enable_audio_transcription and self.whisper_transcriber:
                             try:
-                                logger.info(f"   🎤 提取并转录音频...")
+                                logger.info(f"    提取并转录音频...")
                                 audio_path = self.audio_extractor.extract_audio_from_video(
                                     video_path,
                                     output_dir=material_folder / "_temp_audio",
@@ -976,18 +976,18 @@ class MultimodalMaterialProcessor:
                                     if transcript:
                                         results["audio_transcript"] = transcript
                                         logger.success(
-                                            f"   ✅ 音频转录完成 ({len(transcript)}字符)"
+                                            f"    音频转录完成 ({len(transcript)}字符)"
                                         )
                                         
                                         # 清理临时音频文件
                                         audio_path.unlink(missing_ok=True)
                                         
                             except Exception as e:
-                                logger.error(f"   ❌ 音频处理异常: {e}")
+                                logger.error(f"    音频处理异常: {e}")
                                 results["stats"]["errors"].append(f"音频异常: {video_path.name}")
                                 
                     except Exception as e:
-                        logger.error(f"❌ 视频处理异常 {video_path.name}: {e}")
+                        logger.error(f" 视频处理异常 {video_path.name}: {e}")
                         results["stats"]["errors"].append(f"视频异常: {video_path.name} - {str(e)}")
         
         # 生成综合摘要
@@ -1009,7 +1009,7 @@ class MultimodalMaterialProcessor:
         results["combined_summary"] = "; ".join(summary_parts) if summary_parts else "无有效结果"
         
         logger.info(f"\n{'='*60}")
-        logger.info(f"✅ 素材处理完成: {material_id}")
+        logger.info(f" 素材处理完成: {material_id}")
         logger.info(f"   结果: {results['combined_summary']}")
         logger.info(f"   模式: {results['processing_mode']}")
         logger.info(f"   错误: {len(results['stats']['errors'])}个")
@@ -1049,23 +1049,23 @@ if __name__ == "__main__":
             result, mode = await client.analyze_image(Path(args.image), args.prompt)
             
             if result:
-                print(f"\n✅ 分析成功 (模式: {mode})")
+                print(f"\n 分析成功 (模式: {mode})")
                 print(f"\n{'='*60}")
                 print(result)
                 print(f"{'='*60}\n")
             else:
-                print("\n❌ 分析失败")
+                print("\n 分析失败")
             
-            print(f"\n📊 统计: {client.get_stats()}")
+            print(f"\n 统计: {client.get_stats()}")
         
         asyncio.run(test())
         
     elif args.command == "extract-audio":
         audio_path = VideoAudioExtractor.extract_audio_from_video(Path(args.video))
         if audio_path:
-            print(f"\n✅ 音频提取成功: {audio_path}")
+            print(f"\n 音频提取成功: {audio_path}")
         else:
-            print("\n❌ 音频提取失败")
+            print("\n 音频提取失败")
     
     else:
         parser.print_help()

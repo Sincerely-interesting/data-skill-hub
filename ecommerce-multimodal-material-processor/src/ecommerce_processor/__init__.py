@@ -36,12 +36,8 @@ from .mcp_client import (
     MultimodalMaterialProcessor,
 )
 
-# API服务（开发中，需要fastapi等依赖）
-try:
-    from .api_service import get_app
-    api_app = get_app()  # 安全获取，依赖缺失时返回None
-except Exception:
-    api_app = None
+# API服务（开发中，可选实现，需要fastapi等依赖；CLI 不依赖此模块，导入期不实例化）
+api_app = None
 
 __all__ = [
     # 版本信息

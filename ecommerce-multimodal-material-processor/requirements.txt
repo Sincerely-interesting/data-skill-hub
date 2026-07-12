@@ -6,8 +6,9 @@
 #   pip install -r requirements.txt
 #
 # Prerequisites:
-#   - Python >= 3.9
-#   - ffmpeg (for video frame extraction, must be installed separately)
+#   - Python >= 3.10
+#   - ffmpeg（可选，仅归档 archive 抽帧降级方案需要；打标 label 主路径走
+#     video_direct_mode 直传视频，无需 ffmpeg）
 #     Download: https://ffmpeg.org/download.html
 #     Verify: ffmpeg -version
 #
@@ -16,30 +17,21 @@
 # --- Core Dependencies (Required) ---
 # These packages are required for basic functionality.
 
-openai>=1.30.0              # OpenAI-compatible API client (async support)
+# 移除的"幽灵依赖"（源码从未 import，纯属虚高）：
+#   openai / opencv-python / aiofiles / asyncio-pool / ffmpeg-python
+# 视频走 subprocess 调用系统 ffmpeg，使用 httpx 直连 OpenAI-compatible 端点，
+# 不依赖上述包。
+
 pandas>=2.0.0               # Data manipulation and Excel export
 openpyxl>=3.1.0             # Excel file writing (.xlsx format)
 tqdm>=4.66.0                # Progress bars for batch processing
-Pillow>=10.0.0              # Image processing and validation
-opencv-python>=4.8.0        # Image/Video processing (OpenCV)
+Pillow>=10.0.0              # Image processing and validation (mcp_client 编码)
 python-dotenv>=1.0.0        # Environment variable management (.env files)
 pydantic>=2.5.0             # Data validation and settings management
 pydantic-settings>=2.1.0    # Pydantic settings integration
 loguru>=0.7.0               # Structured logging with rotation
-httpx>=0.25.0               # Async HTTP client (used by openai)
-aiofiles>=23.2.0            # Async file I/O operations
-asyncio-pool>=0.6.0         # Async task pool management
+httpx>=0.25.0               # Async HTTP client (直连多模态端点)
 xlrd>=2.0.1                 # Excel file reading (.xls format)
-
-# --- Video Processing (Required for Video Support) ---
-# Note: This is a Python wrapper. You MUST install ffmpeg binary separately.
-# Video materials cannot be processed without ffmpeg.
-
-ffmpeg-python>=0.2.0        # Python interface to ffmpeg CLI tools
-                            # Install ffmpeg: https://ffmpeg.org/download.html
-                            # Windows: Add ffmpeg/bin to system PATH
-                            # macOS: brew install ffmpeg
-                            # Linux: sudo apt install ffmpeg
 
 # --- Vector Database & Search (Optional, for Advanced Features) ---
 # These are optional but recommended for production deployments.
@@ -75,22 +67,21 @@ mypy>=1.5.0                 # Type checking (optional)
 # ============================================================
 # Dependency Categories Summary:
 # ============================================================
-# ✅ Core (Required): 
-#    openai, pandas, openpyxl, tqdm, Pillow, opencv-python,
-#    python-dotenv, pydantic, pydantic-settings, loguru,
-#    httpx, aiofiles, asyncio-pool, xlrd
+#  Core (Required): 
+#    pandas, openpyxl, tqdm, Pillow, python-dotenv, pydantic,
+#    pydantic-settings, loguru, httpx, xlrd
 #
-# ✅ Video Processing (Required for video materials):
-#    ffmpeg-python (requires ffmpeg binary installation)
+#  Video Processing (Optional, archive only):
+#    ffmpeg binary (系统安装，非 pip 包)；打标 label 主路径无需 ffmpeg
 #
-# 🔵 Optional (Advanced features):
+#  Optional (Advanced features):
 #    lance, sentence-transformers, numpy (vector search)
 #    fastapi, uvicorn (REST API service)
 #
-# ⚠️  Experimental (Under Development):
+#   Experimental (Under Development):
 #    mcp-client (MCP protocol - NOT READY)
 #
-# 🔧 Dev Tools (For development only):
+#  Dev Tools (For development only):
 #    pytest, pytest-asyncio, pytest-cov, black, isort, mypy
 #
 # ============================================================

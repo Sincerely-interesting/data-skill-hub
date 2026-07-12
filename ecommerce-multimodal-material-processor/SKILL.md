@@ -1,6 +1,6 @@
 ﻿---
 name: ecommerce-multimodal-material-processor
-description: "电商多模态素材处理Pipeline。支持从Excel/本地目录下载素材、使用8种AI Provider( Gemini/MiniMax/Kimi/MINICPM/Paddle等)进行智能标注分类、视频抽帧与音频转写、自动归档生成Markdown报告、导出Excel/JSON/缓存,并提供基于LanceDB的向量检索服务。当用户需要处理电商素材(图片/视频)的批量打标、分类、归档、导出或检索时调用此Skill。"
+description: "电商多模态素材处理Pipeline。支持从Excel/本地目录下载素材、使用多种AI Provider进行智能标注分类、自动归档生成Markdown报告、导出Excel/JSON/缓存。注：向量检索服务与REST API为规划中功能（当前仅提供CLI离线处理，api_service.py为占位实现），暂未提供检索能力。当用户需要处理电商素材(图片/视频)的批量打标、分类、归档、导出时调用此Skill。"
 ---
 
 # 电商多模态素材处理器 (E-commerce Multimodal Material Processor)
@@ -33,21 +33,21 @@ python run_pipeline.py doctor
 
 ### 核心依赖
 
-- `sentence-transformers` + `lance`: 向量检索引擎
-- `fastapi` + `uvicorn`: 检索API服务
+- `sentence-transformers` + `lance`: 向量检索引擎（规划中，尚未实现）
+- `fastapi` + `uvicorn`: 检索API服务（规划中，api_service.py 当前为占位实现）
 
 ## 能力边界
 
 - **支持的素材来源**: Excel/CSV URL列表、本地文件夹扫描、SMB共享目录挂载
 - **8种 AI Provider**: Gemini / MiniMax(标准版) / MiniMax(MCP协议) / Kimi / Kimi-Coding / MINICPM / Paddle / 自定义端点(通过YesCode代理)
-- **支持的业务标签**: 明星空镜/空镜草稿(核心款+常规款)/单品展示(上脚)/创意静物/静物展示/性能测试/其他
-- **视频处理能力**: 使用ffmpeg进行1fps均匀抽帧,支持可选音频提取与Whisper转写
+- **支持的业务标签**: 明星穿搭/穿搭精选(核心款+常规款)/单品展示(上脚)/创意静物/静物展示/性能测试/其他
+- **视频处理能力**: 打标(label)路径将视频文件直接以 base64 传给多模态模型(video_direct_mode);归档(archive)路径使用 ffmpeg 进行 1fps 抽帧后送模型。音频提取与 Whisper 转写为独立模块(mcp_client.py),当前未接入 pipeline 命令,仅可单独调用
 - **输出格式**: JSON缓存 + Markdown详细报告(每素材一份) + Excel汇总表 + tempfile原子写入
 - **MCP协议支持**: 通过MiniMax understand_image接口实现多模态理解
 - **质量保障**: 自动重试(最多5次) + 指数退避 + 配额耗尽等待(默认5小时) + 缓存去重
 - **批量处理优化**: JSON参数化配置 + 支持500+素材批量处理
 - **导出功能**: 支持Excel导出(tempfile+rename原子操作) + JSON缓存 + Markdown批量生成
-- **检索服务**: 基于LanceDB的向量相似度检索 + 全文搜索混合方案
+- **检索服务**: 规划中（基于LanceDB的向量相似度检索 + 全文搜索混合方案，当前 api_service.py 仅为占位实现，未提供实际检索能力）
 
 ## 核心工作原则 (必须遵守)
 
@@ -143,9 +143,9 @@ python run_pipeline.py label --provider gemini --materials-dir downloaded_materi
 **标注流程**:
 1. **图片素材**: 直接Base64编码发送给视觉模型
 2. **视频素材**:
-   - 使用ffmpeg抽取关键帧(1fps,保留前60帧)
-   - 可选: 提取音频轨道 → Whisper转写 → 作为上下文补充
-   - 将帧序列发送给模型
+   - 打标(label)默认走 video_direct_mode: 将视频文件 base64 编码后直接发送给多模态模型(不抽帧)。注: 私有端点若不接受 video_url 类型, 视频将无法在打标路径成功处理
+   - 归档(archive)路径改用 ffmpeg 抽帧(1fps), 将采样帧序列发送给模型
+   - 音频提取 + Whisper 转写为独立模块(mcp_client.py), 未接入 pipeline, 仅可单独调用
 3. **Prompt工程**: 使用结构化Prompt,要求返回JSON格式标签
 4. **结果解析**: 提取label字段,验证合法性
 5. **缓存写入**: JSON格式存储到 `labeling_cache.json`
@@ -154,9 +154,9 @@ python run_pipeline.py label --provider gemini --materials-dir downloaded_materi
 ```json
 {
   "labels": [
-    {"id": "celebrity_empty", "name": "明星空镜", "description": "明星人物纯背景镜头"},
-    {"id": "draft_core", "name": "空镜草稿(核心款)", "description": "核心产品空镜拍摄"},
-    {"id": "draft_regular", "name": "空镜草稿(常规款)", "description": "常规产品空镜"},
+    {"id": "celebrity_wear", "name": "明星穿搭", "description": "明星人物纯背景镜头"},
+    {"id": "outfit_core", "name": "穿搭精选(核心)", "description": "核心产品空镜拍摄"},
+    {"id": "outfit_secondary", "name": "穿搭精选(次要)", "description": "常规产品空镜"},
     {"id": "single_display", "name": "单品展示(上脚)", "description": "单件商品上身展示"},
     {"id": "creative_still", "name": "创意静物", "description": "艺术化静物构图"},
     {"id": "still_display", "name": "静物展示", "description": "标准静物摆拍"},
@@ -239,94 +239,94 @@ python run_pipeline.py export-cache --format excel --output excel_exports
 
 ---
 
-### 🚀 Step 1: 环境检查
+###  Step 1: 环境检查
 
 ```
-✅ Python: 3.12.3 ✅
-✅ 依赖包: openai 1.30+ / pandas / tqdm / opencv ✅
-✅ ffmpeg: /usr/bin/ffmpeg ✅
-✅ .env 配置:
-   ✅ 已配置至少一个Provider的API Key ✅
-   ✅ 状态: 全部就绪,可以开始处理
+ Python: 3.12.3 
+ 依赖包: openai 1.30+ / pandas / tqdm / opencv 
+ ffmpeg: /usr/bin/ffmpeg 
+ .env 配置:
+    已配置至少一个Provider的API Key 
+    状态: 全部就绪,可以开始处理
 ```
 
 ---
 
-### 📥 Step 2: 素材获取 (本地目录)
+###  Step 2: 素材获取 (本地目录)
 
 ```
-📂 输入来源: 本地目录 {用户指定路径}
-📊 扫描子文件夹: 487个素材
-📊 类型分布:
-   📷 图片素材: 320个 (65.7%)
-   🎬 视频素材: 167个 (34.3%)
-✅ 状态: 目录就绪,可直接处理
+ 输入来源: 本地目录 {用户指定路径}
+ 扫描子文件夹: 487个素材
+ 类型分布:
+    图片素材: 320个 (65.7%)
+    视频素材: 167个 (34.3%)
+ 状态: 目录就绪,可直接处理
 ```
 
 本地素材已就绪,无需下载步骤,直接进入打标流程。
 
 ---
 
-### 🏷️ Step 3: 详细标签打标 (Provider: 可配置,如Gemini)
+###  Step 3: 详细标签打标 (Provider: 可配置,如Gemini)
 
 ```
-🤖 Provider: gemini-2.5-flash (via YesCode代理或直连)
-⚙️ 批次配置: batch_size=5, batch_delay=20s(可按需调整)
-💾 缓存文件: labeling_cache.json
-📊 已缓存: 0 / 487 (首次运行)
-🔄 处理进度: ████████████████████ 487/487
-📊 标签分布:
-   🌟 明星空镜: 12 (2.5%)
-   📝 空镜草稿(核心款)-空镜草稿: 156 (32.0%)
-   📝 空镜草稿(常规款)-空镜草稿: 28 (5.7%)
-   👟 单品展示(排除上脚)-上脚: 67 (13.8%)
-   🎨 创意静物: 23 (4.7%)
-   📦 静物展示: 45 (9.2%)
-   ⚡ 性能测试: 8 (1.6%)
-   ❓ 其他: 148 (30.4%)
-💾 缓存写入: labeling_cache.json (487 entries)
-⏱️ 耗时: 约 35 分钟
+ Provider: gemini-2.5-flash (via YesCode代理或直连)
+ 批次配置: batch_size=5, batch_delay=20s(可按需调整)
+ 缓存文件: labeling_cache.json
+ 已缓存: 0 / 487 (首次运行)
+ 处理进度: ████████████████████ 487/487
+ 标签分布:
+    明星穿搭: 12 (2.5%)
+    穿搭精选(核心)-穿搭精选: 156 (32.0%)
+    穿搭精选(次要)-穿搭精选: 28 (5.7%)
+    单品展示(排除上脚)-上脚: 67 (13.8%)
+    创意静物: 23 (4.7%)
+    静物展示: 45 (9.2%)
+    性能测试: 8 (1.6%)
+    其他: 148 (30.4%)
+ 缓存写入: labeling_cache.json (487 entries)
+⏱ 耗时: 约 35 分钟
 ```
 
-⚠️ **质量预警**: "其他"占比 30.4%(超过阈值20%),建议:
+ **质量预警**: "其他"占比 30.4%(超过阈值20%),建议:
 1. 检查标签判定基准是否符合当前业务场景
 2. 切换Provider(如kimi)重新打标对比
 3. 抽检"其他"标签素材,确认是否需要新增类别
 
 ---
 
-### 📝 Step 4: 分类归档 (Provider: MINICPM)
+###  Step 4: 分类归档 (Provider: MINICPM)
 
 ```
-🤖 Provider: minicpm (minicpm-v-4, ~3s/素材)(可配置)
-📂 素材分类:
-   📷 图片素材: 320个
-   🎬 视频素材: 167个 (需ffmpeg抽帧)
-🔄 处理进度: ████████████████████ 487/487
-✅ 结果:
-   ✅ 成功: 485 (99.6%)
-   ❌ 失败: 2 (视频格式不支持)
-   📄 报告数量: material_archives/ (485份 .md 报告)
-⏱️ 耗时: 约 25 分钟
+ Provider: minicpm (minicpm-v-4, ~3s/素材)(可配置)
+ 素材分类:
+    图片素材: 320个
+    视频素材: 167个 (需ffmpeg抽帧)
+ 处理进度: ████████████████████ 487/487
+ 结果:
+    成功: 485 (99.6%)
+    失败: 2 (视频格式不支持)
+    报告数量: material_archives/ (485份 .md 报告)
+⏱ 耗时: 约 25 分钟
 ```
 
 ---
 
-### 💾 Step 5: 结果导出(本地保存)
+###  Step 5: 结果导出(本地保存)
 
 ```
-💾 缓存文件: labeling_cache.json (487 entries)
-📊 Excel导出:
-   📄 临时文件: excel_exports/.tmp_results.xlsx
-   ✅ 原子重命名: excel_exports/results.xlsx ✅
-   📊 行数: 487行 ➜ 12列
-📍 输出位置: excel_exports/results.xlsx (本地保存)
-🌐 用户未指定网络同步,跳过
+ 缓存文件: labeling_cache.json (487 entries)
+ Excel导出:
+    临时文件: excel_exports/.tmp_results.xlsx
+    原子重命名: excel_exports/results.xlsx 
+    行数: 487行  12列
+ 输出位置: excel_exports/results.xlsx (本地保存)
+ 用户未指定网络同步,跳过
 ```
 
 ### 执行摘要
 
-本次处理覆盖487个本地素材,打标完成487个,报告生成485份。空镜草稿类素材占比最高(37.7%),建议关注"其他"标签(30.4%)是否需要细化判定基准。Excel结果已导出至本地。
+本次处理覆盖487个本地素材,打标完成487个,报告生成485份。穿搭精选类素材占比最高(37.7%),建议关注"其他"标签(30.4%)是否需要细化判定基准。Excel结果已导出至本地。
 
 ---
 
@@ -432,9 +432,9 @@ SMB_PASS=your_password
 
 | 维度 | 优化方向 | 典型取舍 |
 |------|----------|----------|
-| 💰 成本 | 降低API调用费用 | 选择便宜模型(如minicpm) vs 高精度模型(如gemini) |
-| ⚡ 速度 | 缩短处理时间 | 增大batch_size vs 触发限流风险 |
-| 🎯 质量 | 提升标注准确率 | 多Provider投票 vs 单Provider快速处理 |
+|  成本 | 降低API调用费用 | 选择便宜模型(如minicpm) vs 高精度模型(如gemini) |
+|  速度 | 缩短处理时间 | 增大batch_size vs 触发限流风险 |
+|  质量 | 提升标注准确率 | 多Provider投票 vs 单Provider快速处理 |
 
 **决策示例**:
 - 500个素材,预算有限 → minicpm批量处理
@@ -501,17 +501,17 @@ SMB_PASS=your_password
 每次任务完成后,提供结构化的执行摘要:
 ```
 ## 执行摘要
-- 📊 处理规模: {总数} 个素材
-- ✅ 成功率: {百分比}
-- ⏱️ 总耗时: {时间}
-- 🏷️ 标签分布: {表格或图表}
-- ⚠️ 问题与建议: {列表}
-- 📁 输出文件: {路径列表}
+-  处理规模: {总数} 个素材
+-  成功率: {百分比}
+- ⏱ 总耗时: {时间}
+-  标签分布: {表格或图表}
+-  问题与建议: {列表}
+-  输出文件: {路径列表}
 ```
 
 ## 价值观与反模式
 
-### ✅ 核心价值观
+###  核心价值观
 
 1. **Data Sovereignty (数据主权)**
    - 用户的数据留在用户本地
@@ -533,9 +533,9 @@ SMB_PASS=your_password
    - 某个Provider故障 → 自动fallback到备用Provider
    - 部分素材失败 → 记录错误,继续处理其余素材
 
-### ❌ 反模式 (Anti-Patterns)
+###  反模式 (Anti-Patterns)
 
-1. **❌ 硬编码敏感信息**
+1. ** 硬编码敏感信息**
    ```python
    # 错误示范
    API_KEY = "sk-xxxxx"
@@ -545,7 +545,7 @@ SMB_PASS=your_password
    api_key = settings.gemini_api_key
    ```
 
-2. **❌ 无重试的裸API调用**
+2. ** 无重试的裸API调用**
    ```python
    # 危险做法
    response = requests.post(url, json=data)
@@ -560,25 +560,27 @@ SMB_PASS=your_password
            await asyncio.sleep(delay * (2 ** attempt))
    ```
 
-3. **❌ 忽略视频素材**
+3. ** 忽略视频素材**
    ```python
    # 不完整实现
    if is_image(file):
        process_image(file)
    
-   # 完整实现
+   # 完整实现(区分两条真实路径)
    if is_image(file):
        process_image(file)
    elif is_video(file):
-       frames = extract_frames(file)  # ffmpeg抽帧
-       process_frames(frames)
-       if extract_audio_option:
-           audio = extract_audio(file)
-           transcript = whisper.transcribe(audio)
-           enrich_context(transcript)
+       if pipeline == "label":
+           # 打标: 直接 base64 直传多模态模型(video_direct_mode)
+           process_video_direct(file)
+       elif pipeline == "archive":
+           # 归档: ffmpeg 抽帧后送模型
+           frames = extract_frames(file)  # video_utils.py
+           process_frames(frames)
+       # 可选: Whisper 转写为独立模块(mcp_client.py), 需手动调用
    ```
 
-4. **❌ 静默失败**
+4. ** 静默失败**
    ```python
    # 错误: 吞掉异常
    try:
@@ -602,7 +604,7 @@ SMB_PASS=your_password
 | **Material (素材)** | 待处理的图片或视频文件 | `image_001.jpg`, `content.mp4` |
 | **Material ID (素材ID)** | 素材的唯一标识符 | `440872701` (来自Excel或文件夹名) |
 | **Provider (AI提供商)** | 提供视觉AI服务的厂商 | gemini, minmax, kimi, minicpm |
-| **Label (标签)** | 业务分类结果 | `空镜草稿(核心款)`, `单品展示(上脚)` |
+| **Label (标签)** | 业务分类结果 | `穿搭精选(核心)`, `单品展示(上脚)` |
 | **Cache (缓存)** | 已处理的中间结果 | `labeling_cache.json` |
 | **Archive (归档)** | 生成的详细Markdown报告 | `material_archives/{id}.md` |
 | **Batch (批次)** | 一次API调用的素材集合 | 默认5个素材/批 |
@@ -830,20 +832,20 @@ PROVIDER_CONFIGS = {
 ## 更新日志
 
 ### v2.0.0 (2026-07-11)
-- ✅ 新增MCP协议支持(MiniMax understand_image)
-- ✅ 新增8种AI Provider支持
-- ✅ 新增视频音频提取与Whisper转写
-- ✅ 新增LanceDB向量检索服务
-- ✅ 优化批量处理性能(支持500+素材)
-- ✅ 完善容错机制(自动重试+指数退避)
-- ✅ 新增质量监控("其他"标签预警)
+-  新增MCP协议支持(MiniMax understand_image)
+-  新增8种AI Provider支持
+-  视频音频提取与Whisper转写: 已实现独立模块(mcp_client.py), 但未接入 pipeline 命令, 仅可单独调用
+-  LanceDB向量检索服务：规划中（当前 api_service.py 仅为占位实现，未实际提供检索能力）
+-  优化批量处理性能(支持500+素材)
+-  完善容错机制(自动重试+指数退避)
+-  新增质量监控("其他"标签预警)
 
 ### v1.0.0 (2026-06-29)
-- 🎉 初始版本发布
-- ✅ 支持Excel/本地目录素材导入
-- ✅ 支持Gemini/MiniMax/Kimi标注
-- ✅ 支持Excel/JSON/Markdown导出
-- ✅ 基础的视频抽帧处理
+-  初始版本发布
+-  支持Excel/本地目录素材导入
+-  支持Gemini/MiniMax/Kimi标注
+-  支持Excel/JSON/Markdown导出
+-  基础的视频抽帧处理
 
 ---
 

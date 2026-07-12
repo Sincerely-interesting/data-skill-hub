@@ -56,7 +56,7 @@ class CacheExporter:
         if not self.cache_file.exists():
             raise FileNotFoundError(f"缓存文件不存在: {self.cache_file}")
 
-        logger.info(f"📦 加载缓存: {self.cache_file}")
+        logger.info(f" 加载缓存: {self.cache_file}")
         
         with open(self.cache_file, "r", encoding="utf-8") as f:
             cache_data = json.load(f)
@@ -183,7 +183,7 @@ class CacheExporter:
                 raise e
             
             file_size = output_path.stat().st_size / 1024  # KB
-            logger.success(f"\n✅ Excel导出完成")
+            logger.success(f"\n Excel导出完成")
             logger.info(f"   文件: {output_path}")
             logger.info(f"   大小: {file_size:.2f} KB")
             logger.info(f"   记录数: {len(df)}")

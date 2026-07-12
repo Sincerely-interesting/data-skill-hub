@@ -16,16 +16,16 @@ MCP(Model Context Protocol)是一种**标准化的AI服务通信协议**,旨在:
 ### 为什么在电商素材处理中使用MCP?
 
 **传统OpenAI API的局限性**:
-- ❌ 仅支持简单的图像输入(Base64或URL)
-- ❌ 无法传递丰富的上下文信息
-- ❌ 视频处理需要手动抽帧,效率低
-- ❌ 缺乏结构化的输出格式保证
+-  仅支持简单的图像输入(Base64或URL)
+-  无法传递丰富的上下文信息
+-  视频处理需要手动抽帧,效率低
+-  缺乏结构化的输出格式保证
 
 **MCP的优势**:
-- ✅ 原生多模态理解(图片+视频+音频+元数据)
-- ✅ 结构化上下文注入(业务规则、标签体系、历史案例)
-- ✅ 智能视频分析(自动关键帧提取)
-- ✅ 可靠的JSON Schema输出保证
+-  原生多模态理解(图片+视频+音频+元数据)
+-  结构化上下文注入(业务规则、标签体系、历史案例)
+-  智能视频分析(自动关键帧提取)
+-  可靠的JSON Schema输出保证
 
 ---
 
@@ -289,9 +289,9 @@ class MCPClient:
                     "type": "string",
                     "description": "主标签ID",
                     "enum": [
-                        "celebrity_empty",
-                        "draft_core",
-                        "draft_regular",
+                        "celebrity_wear",
+                        "outfit_core",
+                        "outfit_secondary",
                         "single_display",
                         "creative_still",
                         "still_display",
@@ -489,11 +489,11 @@ class MaterialLabeler:
 
 | 指标 | 传统API | MCP协议 | 提升 |
 |------|---------|---------|------|
-| 图片标注速度 | 2.8s/张 | 1.9s/张 | **32%** ⬆️ |
-| 视频标注速度 | 15.2s/个 | 9.7s/个 | **36%** ⬆️ |
-| JSON解析成功率 | 87% | **99%** ⬆️ | 12% ⬆️ |
-| 置信度准确性 | 78% | **85%** ⬆️ | 7% ⬆️ |
-| API调用成本 | $0.05/千次 | $0.045/千次 | **10%** ⬇️ |
+| 图片标注速度 | 2.8s/张 | 1.9s/张 | **32%**  |
+| 视频标注速度 | 15.2s/个 | 9.7s/个 | **36%**  |
+| JSON解析成功率 | 87% | **99%**  | 12%  |
+| 置信度准确性 | 78% | **85%**  | 7%  |
+| API调用成本 | $0.05/千次 | $0.045/千次 | **10%**  |
 
 **结论**: MCP协议在**速度、准确率、成本**三个维度均优于传统API。
 
@@ -510,13 +510,13 @@ MCP允许将**结构化的业务知识**注入到每次API调用中:
 context = {
     # 标签体系定义
     "labeling_criteria": {
-        "celebrity_empty": {
-            "name": "明星空镜",
+        "celebrity_wear": {
+            "name": "明星穿搭",
             "rules": ["画面中有知名人物", "背景简洁无产品"],
             "examples": ["代言人特写", "明星街拍"],
         },
-        "draft_core": {
-            "name": "空镜草稿(核心款)",
+        "outfit_core": {
+            "name": "穿搭精选(核心)",
             "rules": ["主推产品清晰展示", "纯色或简约背景"],
             "weight": 1.5,  # 提高权重
         },
@@ -533,7 +533,7 @@ context = {
         {
             "material_id": "440872702",
             "image_description": "明星代言,黑色T恤",
-            "label": "celebrity_empty",
+            "label": "celebrity_wear",
             "confidence": 0.92,
         },
     ],
@@ -542,7 +542,7 @@ context = {
     "batch_statistics": {
         "total_materials": 500,
         "current_distribution": {
-            "draft_core": 156,
+            "outfit_core": 156,
             "single_display": 67,
             "other": 148,  # 占比过高,需关注
         },
@@ -575,7 +575,7 @@ custom_schema = {
     "properties": {
         "primary_label": {
             "type": "string",
-            "enum": ["celebrity_empty", "draft_core", ...],
+            "enum": ["celebrity_wear", "outfit_core", ...],
         },
         "confidence": {
             "type": "number",
@@ -818,7 +818,7 @@ class MCPClient:
 
 ## 最佳实践总结
 
-### ✅ 推荐做法
+###  推荐做法
 
 1. **始终使用MCP作为首选**(如果Provider支持)
 2. **定义清晰的Output Schema**(避免解析错误)
@@ -827,7 +827,7 @@ class MCPClient:
 5. **实现多层降级机制**(保证可用性)
 6. **记录详细的调用日志**(便于调试优化)
 
-### ❌ 避免的做法
+###  避免的做法
 
 1. 不要忽略MCP的错误响应(包含有价值的调试信息)
 2. 不要在Schema中使用过于宽松的类型(如`any`)

@@ -4,7 +4,7 @@
 
 ## 当前状态评估 (v2.0)
 
-### ✅ 已实现能力
+###  已实现能力
 
 #### 1. 半自动采集阶段
 - **Excel/CSV导入**: 手动整理素材URL列表,批量下载
@@ -30,7 +30,7 @@
 
 ---
 
-### ⚠️ 当前痛点
+###  当前痛点
 
 1. **人工介入过多**
    - 需要手动整理Excel URL列表
@@ -115,7 +115,7 @@ class CollectionScheduler:
     
     def job_scan_source_directory(self, source_dir):
         """扫描源目录,发现新素材"""
-        logger.info(f"🔍 Scanning source directory: {source_dir}")
+        logger.info(f" Scanning source directory: {source_dir}")
         
         # 记录上次扫描状态
         last_scan_file = Path(".last_scan_state")
@@ -132,7 +132,7 @@ class CollectionScheduler:
         new_files = current_files - last_files
         
         if new_files:
-            logger.info(f"✅ Found {len(new_files)} new files")
+            logger.info(f" Found {len(new_files)} new files")
             
             # 记录到待处理队列
             queue_file = Path(".pending_queue.json")
@@ -151,7 +151,7 @@ class CollectionScheduler:
                 f"发现 {len(new_files)} 个新素材,已加入处理队列"
             )
         else:
-            logger.info("ℹ️ No new files found")
+            logger.info("ℹ No new files found")
         
         # 更新扫描状态
         with open(last_scan_file, "w") as f:
@@ -175,10 +175,10 @@ class CollectionScheduler:
         ]
         
         if not unprocessed:
-            logger.info("✅ All materials are up-to-date")
+            logger.info(" All materials are up-to-date")
             return
         
-        logger.info(f"📊 Processing {len(unprocessed)} new materials...")
+        logger.info(f" Processing {len(unprocessed)} new materials...")
         
         # 执行打标
         results = []
@@ -191,13 +191,13 @@ class CollectionScheduler:
         
         # 统计
         labels = Counter(r["label"] for r in results)
-        logger.info(f"✅ Completed {len(results)} materials")
-        logger.info(f"📈 Label distribution: {dict(labels)}")
+        logger.info(f" Completed {len(results)} materials")
+        logger.info(f" Label distribution: {dict(labels)}")
         
         # 质量检查
         other_ratio = labels.get("other", 0) / len(results)
         if other_ratio > 0.2:
-            logger.warning(f'⚠️ "Other" label ratio ({other_ratio:.1%}) exceeds threshold!')
+            logger.warning(f' "Other" label ratio ({other_ratio:.1%}) exceeds threshold!')
             self.send_quality_alert(other_ratio, results)
     
     def run(self):
@@ -285,7 +285,7 @@ class MaterialFileHandler(FileSystemEventHandler):
         if not self._is_material_file(file_path):
             return
         
-        logger.debug(f"📁 New file detected: {file_path}")
+        logger.debug(f" New file detected: {file_path}")
         
         # 防抖: 避免大文件复制过程中多次触发
         self._debounce("created", file_path, delay=5.0, callback=lambda: self._enqueue(file_path))
@@ -300,7 +300,7 @@ class MaterialFileHandler(FileSystemEventHandler):
         if not self._is_material_file(file_path):
             return
         
-        logger.debug(f"✏️ File modified: {file_path}")
+        logger.debug(f" File modified: {file_path}")
         
         # 标记为需重新处理
         self._debounce("modified", file_path, delay=10.0, callback=lambda: self._mark_for_reprocess(file_path))
@@ -329,7 +329,7 @@ def start_watching(watch_dir, queue_manager):
     observer.schedule(event_handler, watch_dir, recursive=True)
     
     observer.start()
-    logger.info(f"👀 Started watching: {watch_dir}")
+    logger.info(f" Started watching: {watch_dir}")
     
     try:
         while True:
@@ -582,7 +582,7 @@ async def receive_material_webhook(payload: WebhookPayload, request: Request):
         if signature != expected_sig:
             raise HTTPException(status_code=403, detail="Invalid signature")
     
-    logger.info(f"🎣 Webhook received: {payload.event_type}, {len(payload.data)} materials")
+    logger.info(f" Webhook received: {payload.event_type}, {len(payload.data)} materials")
     
     # 解析并入队
     queued_count = 0
@@ -599,7 +599,7 @@ async def receive_material_webhook(payload: WebhookPayload, request: Request):
         
         # 验证必填字段
         if not material["material_id"] or not material["url"]:
-            logger.warning(f"⚠️ Missing required fields: {material}")
+            logger.warning(f" Missing required fields: {material}")
             continue
         
         # 加入处理队列
@@ -1195,21 +1195,21 @@ export function ReviewPanel({ samples, onSubmitFeedback }) {
 
 ### 近期行动(未来3个月)
 
-1. ✅ **立即实施**: 部署`Phase 1`的定时任务调度器
-2. 📅 **本月目标**: 实现`file_watcher`,支持实时监控
-3. 📅 **下季度目标**: 完成`API对接层`,对接内部DAM系统
+1.  **立即实施**: 部署`Phase 1`的定时任务调度器
+2.  **本月目标**: 实现`file_watcher`,支持实时监控
+3.  **下季度目标**: 完成`API对接层`,对接内部DAM系统
 
 ### 中期规划(6-12个月)
 
-1. 🚀 **Q4 2026**: 发布`v3.0`,包含完整的采集网络
-2. 🔧 **Q1 2027**: 开始分布式架构迁移(PoC)
-3. 👥 **团队建设**: 招聘DevOps工程师,建立on-call机制
+1.  **Q4 2026**: 发布`v3.0`,包含完整的采集网络
+2.  **Q1 2027**: 开始分布式架构迁移(PoC)
+3.  **团队建设**: 招聘DevOps工程师,建立on-call机制
 
 ### 远景愿景(12-24个月)
 
-1. 🤖 **Q2 2027**: `v4.0`自主学习系统上线
-2. 📊 **ROI目标**: 处理成本降低90%+,准确率达到95%+
-3. 🌐 **生态建设**: 开源核心组件,建立社区
+1.  **Q2 2027**: `v4.0`自主学习系统上线
+2.  **ROI目标**: 处理成本降低90%+,准确率达到95%+
+3.  **生态建设**: 开源核心组件,建立社区
 
 ---
 

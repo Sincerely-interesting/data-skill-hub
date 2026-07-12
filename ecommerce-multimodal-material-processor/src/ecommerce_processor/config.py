@@ -5,10 +5,14 @@ from typing import List, Optional
 
 try:
     from pydantic_settings import BaseSettings
+    from pydantic import model_validator
 except ImportError:
     class BaseSettings:
         __annotations__ = {}
         def __init__(self, **data): pass
+    def model_validator(*args, **kwargs):
+        def decorator(cls): return cls
+        return decorator
 
 class Settings(BaseSettings):
     """系统配置"""
@@ -27,9 +31,12 @@ class Settings(BaseSettings):
     minicpm_instruct_model_id: str = "minicpm-v-4"
     custom_minmax_url: Optional[str] = None
 
-    # 二、VLM配置
+    # 二、VLM 配置（视觉模型，用于打标 / 归档看图）
+    # 与下方"九、LLM 参数"完全独立——即使两者地址/参数相同，也必须分开填写。
     vlm_model: str = "minicpm-v-4.6"
     vlm_provider: str = "custom_minmax"
+    vlm_base_url: Optional[str] = None
+    vlm_api_key: Optional[str] = None
     vlm_temperature: float = 0.3
     vlm_max_tokens: int = 4000
     vlm_timeout_ms: int = 300000
@@ -61,19 +68,24 @@ class Settings(BaseSettings):
     quality_other_label_threshold: float = 0.20
     quality_min_success_rate: float = 0.95
 
-    # 九、LLM参数
+    # 九、LLM 参数（文本模型，用于报告 / 分析等文本生成，与 VLM 完全独立）
+    # 即使 VLM 与 LLM 指向同一地址、参数相同，也必须各自配置，互不影响。
+    llm_provider: str = "custom_minmax"
     llm_timeout_ms: int = 180000
     llm_temperature: float = 0.7
     llm_max_tokens: int = 2600
     llm_concurrency: int = 1
     enable_mock_llm: bool = False
+    # 独立文本 LLM 端点（.env: LLM_BASE_URL / LLM_API_KEY），
+    # 不再依赖 VLM 的 custom_minmax_url，实现真正分离。
+    llm_base_url: Optional[str] = None
+    llm_api_key: Optional[str] = None
 
     # 十、分析模板
     analysis_template: str = "full_dimension"
     video_direct_mode: bool = True
     template_path_full_dimension: str = "docs/ANALYSIS_TEMPLATE_FULL_DIMENSION.md"
     template_path_storyboard: str = "docs/STORYBOARD_TEMPLATE_STANDARD.md"
-    enable_fallback: bool = True
 
     # 十一、处理限制
     max_images: int = 10
@@ -103,24 +115,13 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
-
-    def __init__(self, **data):
-        try:
-            super().__init__(**data)
-        except Exception:
-            from os import environ
-            for key in self.__class__.__annotations__:
-                val = environ.get(key.upper())
-                if val is not None:
-                    setattr(self, key, val)
-                elif key in data:
-                    setattr(self, key, data[key])
-                else:
-                    setattr(self, key, getattr(self.__class__, key, None))
+        extra = "ignore"
 
     def validate_provider_config(self) -> List[str]:
         providers = []
-        for name in ['minmax', 'kimi', 'minicpm', 'paddle', 'custom_minmax', 'yescode', 'gemini']:
+        # 既识别 legacy 的 {provider}_api_key，也识别双独立配置下的 vlm_api_key / llm_api_key，
+        # 这样精简后的 .env（只配 VLM_*/LLM_*）也能通过 doctor 校验。
+        for name in ['minmax', 'kimi', 'minicpm', 'paddle', 'custom_minmax', 'yescode', 'gemini', 'vlm', 'llm']:
             if getattr(self, f'{name}_api_key'):
                 providers.append(name)
         if not providers:
@@ -133,17 +134,21 @@ class Settings(BaseSettings):
                 for name in ['minmax', 'kimi', 'minicpm', 'paddle', 
                              'custom_minmax', 'yescode', 'gemini']}
     
-    @property
-    def vlm_api_key(self) -> Optional[str]:
-        return getattr(self, f'{self.vlm_provider}_api_key', None)
-    
-    @property
-    def vlm_base_url(self) -> Optional[str]:
-        if self.vlm_provider == 'custom_minmax':
-            return self.custom_minmax_url
-        elif self.vlm_provider == 'minicpm':
-            return self.minicpm_base_url
-        return None
+    @model_validator(mode="after")
+    def _backfill_endpoints(self) -> "Settings":
+        # VLM 端点：优先用独立的 vlm_base_url / vlm_api_key，
+        # 否则回退到 legacy 的 custom_minmax_url / custom_minmax_api_key。
+        if not self.vlm_base_url and self.custom_minmax_url:
+            self.vlm_base_url = self.custom_minmax_url
+        if not self.vlm_api_key and self.custom_minmax_api_key:
+            self.vlm_api_key = self.custom_minmax_api_key
+        # LLM 端点：优先用独立的 llm_base_url / llm_api_key，
+        # 否则回退到 custom_minmax_*（方便单地址部署，但仍是独立字段）。
+        if not self.llm_base_url and self.custom_minmax_url:
+            self.llm_base_url = self.custom_minmax_url
+        if not self.llm_api_key and self.custom_minmax_api_key:
+            self.llm_api_key = self.custom_minmax_api_key
+        return self
 
 _settings_instance = None
 

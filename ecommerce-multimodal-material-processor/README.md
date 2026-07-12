@@ -2,7 +2,7 @@
 
 # ecommerce-multimodal-material-processor
 
-> 🛒 电商多模态素材智能处理Pipeline | AI驱动的端到端内容工作流
+>  电商多模态素材智能处理Pipeline | AI驱动的端到端内容工作流
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -14,24 +14,24 @@
 
 ---
 
-## ✨ 核心特性
+##  核心特性
 
-### 🚀 一键式部署
+###  一键式部署
 - **零配置启动**: `pip install -r requirements.txt && python run_pipeline.py doctor`
 - **CLI统一入口**: 5个核心命令(doctor/download/label/archive/export)
 
-### 🤖 多Provider支持
+###  多Provider支持
 - **8种AI Provider**: Gemini/MiniMax/Kimi/MINICPM/Paddle等主流视觉模型
 - **智能路由**: JSON配置 + 自动fallback机制
 - **灵活切换**: 10s/20s/30s/60s多档延迟配置
 - **成本优化**: 按需选择,平衡质量与成本
 
-### 📊 多源输入
+###  多源输入
 - Excel/CSV URL列表
 - 本地目录递归扫描
 - SMB共享目录挂载
 
-### 🎯 多格式输出
+###  多格式输出
 - Markdown详细报告
 - Excel结构化汇总表(带公式)
 - JSON缓存数据
@@ -39,7 +39,7 @@
 
 ---
 
-## 📋 目录结构
+##  目录结构
 
 ```
 ecommerce-multimodal-material-processor/
@@ -68,7 +68,7 @@ ecommerce-multimodal-material-processor/
 
 ---
 
-## 🚀 快速开始
+##  快速开始
 
 ### Step 1: 环境准备
 
@@ -118,20 +118,20 @@ python run_pipeline.py doctor
 **预期输出**:
 ```
 ============================================================
-🚀 环境预检 (Doctor)
+ 环境预检 (Doctor)
 ============================================================
 
-✅ Python: 3.12.3
-✅ 核心依赖: openai / pandas / tqdm / opencv-python
-✅ ffmpeg: /usr/bin/ffmpeg (视频处理就绪)
-✅ API Keys:
-   ✅ gemini: 已配置
-   ⚠️ minmax: 未配置 (可选)
-⚠️ kimi: 未配置 (可选)
-✅ 输出目录权限: 正常
-✅ 缓存目录: ./cache (已创建)
+ Python: 3.12.3
+ 核心依赖: openai / pandas / tqdm / opencv-python
+ ffmpeg: /usr/bin/ffmpeg (视频处理就绪)
+ API Keys:
+    gemini: 已配置
+    minmax: 未配置 (可选)
+ kimi: 未配置 (可选)
+ 输出目录权限: 正常
+ 缓存目录: ./cache (已创建)
 
-✅ 环境检查通过! 可以开始处理素材。
+ 环境检查通过! 可以开始处理素材。
 ```
 
 ### Step 4: 完整流程示例
@@ -171,7 +171,7 @@ python run_pipeline.py export-cache --format excel
 
 ---
 
-## 📖 详细使用指南
+##  详细使用指南
 
 ### 命令参考
 
@@ -278,15 +278,15 @@ python run_pipeline.py export-cache \
 
 ---
 
-## 🎨 业务标签体系
+##  业务标签体系
 
 本工具针对电商内容场景设计了**8种业务标签**:
 
 | 标签ID | 标签名称 | 描述 | 典型场景 |
 |--------|----------|------|----------|
-| `celebrity_empty` | 明星空镜 | 明星人物纯背景镜头 | 明星代言、代言人特写 |
-| `draft_core` | 空镜草稿(核心款) | 核心产品空镜拍摄 | 主推款产品展示 |
-| `draft_regular` | 空镜草稿(常规款) | 常规产品空镜 | 常规款式展示 |
+| `celebrity_wear` | 明星穿搭 | 明星人物纯背景镜头 | 明星代言、代言人特写 |
+| `outfit_core` | 穿搭精选(核心) | 核心产品空镜拍摄 | 主推款产品展示 |
+| `outfit_secondary` | 穿搭精选(次要) | 常规产品空镜 | 常规款式展示 |
 | `single_display` | 单品展示(上脚) | 单件商品上身展示 | 鞋类上脚图、服装穿搭 |
 | `creative_still` | 创意静物 | 艺术化静物构图 | 创意拍摄、概念片 |
 | `still_display` | 静物展示 | 标准静物摆拍 | 产品白底图、细节图 |
@@ -294,13 +294,13 @@ python run_pipeline.py export-cache \
 | `other` | 其他 | 无法归类的素材 | 特殊case、待人工确认 |
 
 **质量控制规则**:
-- ⚠️ "其他"标签占比 > 20% → 触发预警
-- ✅ 建议各标签占比相对均衡
-- 🔍 定期抽检验证准确率
+-  "其他"标签占比 > 20% → 触发预警
+-  建议各标签占比相对均衡
+-  定期抽检验证准确率
 
 ---
 
-## 🔧 高级配置
+##  高级配置
 
 ### 自定义参数
 
@@ -377,7 +377,7 @@ python run_pipeline.py sync-smb \
 
 ---
 
-## 📊 性能优化建议
+##  性能优化建议
 
 ### 大批量处理(500+素材)
 
@@ -410,7 +410,7 @@ nohup python run_pipeline.py label --provider gemini > log.txt 2>&1 &
 
 ---
 
-## 🐛 故障排查
+##  故障排查
 
 ### 常见问题及解决方案
 
@@ -437,7 +437,7 @@ python verify_installation.py
 
 ---
 
-## 📈 生产部署建议
+##  生产部署建议
 
 ### 服务器配置要求
 
@@ -477,7 +477,7 @@ export LOG_LEVEL=DEBUG  # DEBUG/INFO/WARNING/ERROR
 
 ---
 
-## 🤝 贡献指南
+##  贡献指南
 
 ### 开发环境搭建
 
@@ -521,7 +521,7 @@ flake8 src/
 
 ---
 
-## 📄 许可证
+##  许可证
 
 本项目采用 [MIT License](./LICENSE) 开源协议。
 
@@ -543,7 +543,7 @@ copies or substantial portions of the Software.
 
 ---
 
-## 🙏 致谢
+##  致谢
 
 - **AI Providers**: Google(Gemini), MiniMax, Moonshot(Kimi), MiniCPM, Baidu(Paddle)
 - **开源社区**: OpenAI(httpx), HuggingFace(sentence-transformers), LanceDB
@@ -551,7 +551,7 @@ copies or substantial portions of the Software.
 
 ---
 
-## 📞 联系方式
+##  联系方式
 
 - **Issue反馈**: [GitHub Issues](https://github.com/your-org/ecommerce-multimodal-material-processor/issues)
 - **讨论交流**: [GitHub Discussions](https://github.com/your-org/ecommerce-multimodal-material-processor/discussions)
@@ -561,8 +561,8 @@ copies or substantial portions of the Software.
 
 <div align="center">
 
-**⭐ 如果这个项目对你有帮助,请给一个Star支持! ⭐**
+** 如果这个项目对你有帮助,请给一个Star支持! **
 
-Made with ❤️ by AI Content Realize Team
+Made with  by AI Content Realize Team
 
 </div>

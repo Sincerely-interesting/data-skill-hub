@@ -52,17 +52,17 @@ def setup_logging(level: str = "INFO"):
 def cmd_doctor(args):
     """环境检查命令"""
     print("\n" + "=" * 60)
-    print("🔧 环境预检 (Doctor)")
+    print(" 环境预检 (Doctor)")
     print("=" * 60 + "\n")
     
     checker = DependencyChecker()
     passed, errors, warnings = checker.run_full_check()
     
     if passed:
-        print("\n✅ 环境检查通过，可以开始处理！")
+        print("\n 环境检查通过，可以开始处理！")
         return 0
     else:
-        print(f"\n❌ 发现 {len(errors)} 个问题，请修复后重试。")
+        print(f"\n 发现 {len(errors)} 个问题，请修复后重试。")
         return 1
 
 
@@ -72,10 +72,10 @@ def cmd_download(args):
         # 本地目录模式（只扫描，不下载）
         from ecommerce_processor.downloader import download_from_local_directory
         
-        print("\n📂 扫描本地目录...")
+        print("\n 扫描本地目录...")
         stats = download_from_local_directory(args.local_dir)
         
-        print(f"\n✅ 扫描完成:")
+        print(f"\n 扫描完成:")
         print(f"   文件夹数: {stats['total_folders']}")
         print(f"   图片: {stats['total_images']}")
         print(f"   视频: {stats['total_videos']}")
@@ -101,9 +101,11 @@ async def cmd_label(args):
     """打标命令"""
     labeler = MaterialLabeler(
         provider=args.provider,
+        model=args.model,
         materials_dir=args.materials_dir,
         batch_size=args.batch_size,
         batch_delay=args.batch_delay,
+        force=args.force,
     )
     
     await labeler.process_all(sample=args.sample)
@@ -191,12 +193,16 @@ def main():
     available_providers = list(MaterialLabeler.PROVIDER_CONFIGS.keys())
     
     parser_label.add_argument("--provider", "-p", 
-                              default="gemini",
+                              default="custom_minmax",
                               choices=available_providers,
                               help=f"Provider选择 (可选: {', '.join(available_providers)})")
+    parser_label.add_argument("--model", "-M", default=None,
+                              help="视觉模型名称（默认使用配置中的 vlm_model，如 minicpm-v-4.6）")
     parser_label.add_argument("--batch-size", "-b", type=int, default=None, help="每批数量")
     parser_label.add_argument("--batch-delay", "-d", type=float, default=None, help="批次延迟(秒)")
     parser_label.add_argument("--sample", "-s", type=int, default=None, help="采样数量")
+    parser_label.add_argument("--force", "-f", action="store_true",
+                              help="忽略已有缓存，强制重新打标（用于重试此前失败项）")
     parser_label.set_defaults(func=lambda args: asyncio.run(cmd_label(args)))
 
     # archive 命令
@@ -238,10 +244,10 @@ def main():
         result = args.func(args)
         return result if isinstance(result, int) else 0
     except KeyboardInterrupt:
-        print("\n\n⚠️  用户中断操作")
+        print("\n\n  用户中断操作")
         return 130
     except Exception as e:
-        logger.exception(f"❌ 执行失败: {e}")
+        logger.exception(f" 执行失败: {e}")
         return 1
 
 

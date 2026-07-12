@@ -1,15 +1,15 @@
-﻿# 🎯 自建LM Studio服务器配置指南
+﻿#  自建LM Studio服务器配置指南
 
-## ✅ 配置完成状态
+##  配置完成状态
 
 **配置时间**: 2026-07-11  
 **目标服务器**: LM Studio (Gemma-4-12B-IT)  
 **服务器地址**: `https://lmstudio.deep-think.com.cn/v1`  
-**配置状态**: ✅ **已完成并优化**
+**配置状态**:  **已完成并优化**
 
 ---
 
-## 📋 已完成的配置项
+##  已完成的配置项
 
 ### 1. **环境变量配置 (`.env`)**
 
@@ -25,7 +25,6 @@ LLM_TEMPERATURE=0.7                # 温度: 0.7(较高创造性)
 LLM_MAX_TOKENS=2600                # 最大输出Token
 LLM_CONCURRENCY=1                  # 并发数: 1(串行)
 ENABLE_MOCK_LLM=false              # 禁用模拟模式
-ENABLE_FALLBACK=true               # 启用故障回退
 ```
 
 ### 2. **代码层配置 (`config.py`)**
@@ -43,21 +42,20 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 2600
     llm_concurrency: int = 1
     enable_mock_llm: bool = False
-    enable_fallback: bool = True
 ```
 
 ### 3. **运行时适配 (`labeler.py`)**
 
 #### 改动点:
-- ✅ **动态模型选择**: 从硬编码改为读取 `settings.llm_model`
-- ✅ **可配置超时**: HTTP客户端超时从固定60秒 → `settings.llm_timeout_ms/1000`
-- ✅ **灵活温度控制**: 从固定0.3 → `settings.llm_temperature`
-- ✅ **可控Token限制**: 从固定1024 → `settings.llm_max_tokens`
-- ✅ **Provider配置更新**: custom_minmax的model字段设为"auto"(自动从settings读取)
+-  **动态模型选择**: 从硬编码改为读取 `settings.llm_model`
+-  **可配置超时**: HTTP客户端超时从固定60秒 → `settings.llm_timeout_ms/1000`
+-  **灵活温度控制**: 从固定0.3 → `settings.llm_temperature`
+-  **可控Token限制**: 从固定1024 → `settings.llm_max_tokens`
+-  **Provider配置更新**: custom_minmax的model字段设为"auto"(自动从settings读取)
 
 ---
 
-## 🚀 快速开始测试
+##  快速开始测试
 
 ### Step 1: 验证配置
 
@@ -72,10 +70,10 @@ python test_lmstudio_config.py
 **预期输出示例**:
 ```
 ============================================================
-🔧 LM Studio 服务器连接测试
+ LM Studio 服务器连接测试
 ============================================================
 
-📋 当前配置:
+ 当前配置:
   服务器URL: https://lmstudio.deep-think.com.cn/v1
   API Key: sk-lm-zHTq...JP0U711R
   模型名称: gemma-4-12b-it
@@ -84,28 +82,28 @@ python test_lmstudio_config.py
   最大Token: 2600
   并发数: 1
 
-🌐 测试网络连接...
+ 测试网络连接...
   [1/4] 检查服务器可达性: https://lmstudio.deep-think.com.cn/v1/models
-  ✅ 服务器响应正常 (状态码: 200)
-  📦 可用模型列表 (3个):
+   服务器响应正常 (状态码: 200)
+   可用模型列表 (3个):
      - gemma-4-12b-it
      - gemma-4-9b-it
      - llama-3-8b
-  ✅ 目标模型 'gemma-4-12b-it' 存在
+   目标模型 'gemma-4-12b-it' 存在
 
   [2/4] 测试API调用: /chat/completions
-  ✅ API调用成功!
-  🤖 模型回复: 我是Gemma-4，一个由Google开发的多模态大语言模型...
-  📊 Token使用: 输入=15, 输出=42
+   API调用成功!
+   模型回复: 我是Gemma-4，一个由Google开发的多模态大语言模型...
+   Token使用: 输入=15, 输出=42
 
   [3/4] 初始化MaterialLabeler...
-  ✅ Labeler初始化成功
+   Labeler初始化成功
 
   [4/4] 配置完整性检查...
-  ✅ 所有配置检查通过
+   所有配置检查通过
 
 ============================================================
-🎉 所有测试通过！你的LM Studio服务器配置正确
+ 所有测试通过！你的LM Studio服务器配置正确
 ============================================================
 ```
 
@@ -140,7 +138,7 @@ python run_pipeline.py archive --output-dir ./archive_report
 
 ---
 
-## ⚙️ 参数调优建议
+##  参数调优建议
 
 ### 针对 Gemma-4-12B-IT 的推荐配置
 
@@ -182,15 +180,15 @@ DEFAULT_BATCH_SIZE=10  # 每批处理10个
 
 ---
 
-## 🔍 故障排查
+##  故障排查
 
 ### 常见问题及解决方案
 
-#### ❌ 问题1: 连接超时
+####  问题1: 连接超时
 
 **错误信息**:
 ```
-❌ 连接超时 (> 180秒)
+ 连接超时 (> 180秒)
 ```
 
 **解决方案**:
@@ -202,11 +200,11 @@ LLM_TIMEOUT_MS=300000  # 5分钟
 # 在LM Studio界面查看GPU使用率,如>90%则需等待或降低并发
 ```
 
-#### ❌ 问题2: 模型不存在
+####  问题2: 模型不存在
 
 **错误信息**:
 ```
-⚠️  警告: 目标模型 'gemma-4-12b-it' 未在列表中找到
+  警告: 目标模型 'gemma-4-12b-it' 未在列表中找到
 ```
 
 **解决方案**:
@@ -218,11 +216,11 @@ python test_lmstudio_config.py
 # 例如: LLM_MODEL=gemma-4-9b-it
 ```
 
-#### ❌ 问题3: API Key无效
+####  问题3: API Key无效
 
 **错误信息**:
 ```
-❌ API调用失败 (状态码: 401)
+ API调用失败 (状态码: 401)
 ```
 
 **解决方案**:
@@ -230,7 +228,7 @@ python test_lmstudio_config.py
 2. 确认LM Studio服务器的认证设置
 3. 重新生成API Key并更新.env
 
-#### ❌ 问题4: 标注结果质量差
+####  问题4: 标注结果质量差
 
 **可能原因及调整**:
 
@@ -243,7 +241,7 @@ python test_lmstudio_config.py
 
 ---
 
-## 📊 监控与日志
+##  监控与日志
 
 ### 启用详细日志
 
@@ -266,15 +264,15 @@ LOG_LEVEL=DEBUG
 
 ---
 
-## 🔒 安全注意事项
+##  安全注意事项
 
 ### 1. **保护API Key**
 
-✅ 已做:
+ 已做:
 - `.env`已添加到`.gitignore`
 - 不会提交到版本控制
 
-⚠️ 你需要:
+ 你需要:
 - 不要将.env文件分享给他人
 - 定期轮换API Key
 - 限制LM Studio服务器的访问IP (如果可能)
@@ -288,7 +286,7 @@ LOG_LEVEL=DEBUG
 
 ---
 
-## 🔄 后续扩展
+##  后续扩展
 
 ### 添加更多自定义Provider
 
@@ -309,9 +307,9 @@ MINICPM_API_KEY=key-for-server2
 ### 与其他系统集成
 
 当前配置支持:
-- ✅ CLI命令行工具
-- ✅ Python API直接调用
-- ✅ Web API服务 (FastAPI)
+-  CLI命令行工具
+-  Python API直接调用
+-  Web API服务 (FastAPI)
 
 未来可扩展:
 - Docker容器化部署
@@ -320,7 +318,7 @@ MINICPM_API_KEY=key-for-server2
 
 ---
 
-## 📞 技术支持
+##  技术支持
 
 ### 快速诊断命令
 
@@ -350,15 +348,15 @@ asyncio.run(test())
 
 ---
 
-## ✨ 总结
+##  总结
 
 你的**自建LM Studio服务器**现在已经完全集成到电商多模态素材处理Skill中！
 
 **核心优势**:
-- 🚀 **零延迟**: 本地部署,无网络传输延迟
-- 🔒 **数据安全**: 素材不离开内网
-- 💰 **成本可控**: 无按次计费,无限使用
-- 🎛️ **完全可控**: 可调整任何参数
+-  **零延迟**: 本地部署,无网络传输延迟
+-  **数据安全**: 素材不离开内网
+-  **成本可控**: 无按次计费,无限使用
+-  **完全可控**: 可调整任何参数
 
 **立即开始测试**:
 ```bash

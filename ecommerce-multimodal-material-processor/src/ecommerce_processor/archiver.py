@@ -85,37 +85,46 @@ class MaterialArchiver:
         self._load_cache()
 
     def _load_provider_config(self) -> None:
-        """加载Provider配置（复用Labeler的配置逻辑）"""
+        """加载 Provider 配置（归档需看图，使用 VLM 配置，与文本 LLM 完全独立）"""
         from .labeler import MaterialLabeler
-        
+
         configs = MaterialLabeler.PROVIDER_CONFIGS.get(self.provider)
         if not configs:
             raise ValueError(f"不支持的归档Provider: {self.provider}")
 
         api_key_env = configs["api_key_env"]
-        env_name = api_key_env.replace("_API_KEY", "")
-        api_key = getattr(settings, f"{env_name}_api_key".lower(), None)
-        
+        env_name = api_key_env.replace("_API_KEY", "").lower()
+        api_key = getattr(settings, f"{env_name}_api_key", None)
+        # VLM 独立密钥优先
+        if settings.vlm_api_key:
+            api_key = settings.vlm_api_key
+
         if not api_key:
             raise ValueError(f"未配置 {api_key_env}！")
-        
+
         self.api_key = api_key
-        self.model = configs["model"]
-        
+        # custom_minmax 等 provider 的 model 在 PROVIDER_CONFIGS 中为 None，
+        # 兜底使用 settings.vlm_model
+        self.model = configs["model"] or settings.vlm_model
+
         base_url = configs["base_url"]
         if base_url == "auto":
             if self.provider == "minicpm":
-                self.base_url = settings.minicpm_base_url
+                resolved = settings.minicpm_base_url
             else:
                 raise ValueError(f"Provider {self.provider} URL配置错误")
         elif base_url == "mcp":
-            self.base_url = None
+            resolved = None
         else:
-            self.base_url = base_url
+            resolved = base_url
+
+        # VLM 独立地址优先（与文本 LLM 分离）
+        self.base_url = settings.vlm_base_url or resolved
 
         logger.info(
-            f"📡 归档Provider配置: {self.provider} | "
-            f"模型: {self.model}"
+            f" 归档Provider配置: {self.provider} | "
+            f"模型: {self.model} | "
+            f"Base URL: {self.base_url}"
         )
 
     def _load_cache(self) -> None:
@@ -124,25 +133,27 @@ class MaterialArchiver:
             try:
                 with open(self.cache_file, "r", encoding="utf-8") as f:
                     self._cache = json.load(f)
-                logger.info(f"📦 加载打标缓存: {len(self._cache)} 条记录")
+                logger.info(f" 加载打标缓存: {len(self._cache)} 条记录")
             except Exception as e:
-                logger.warning(f"⚠️  缓存文件损坏: {e}")
+                logger.warning(f"  缓存文件损坏: {e}")
                 self._cache = {}
         else:
-            logger.warning("⚠️  未找到打标缓存文件，将仅基于文件内容归档")
+            logger.warning("  未找到打标缓存文件，将仅基于文件内容归档")
 
     async def _call_api_for_archive(
         self,
         prompt: str,
         images: Optional[List[Path]] = None,
+        videos: Optional[List[Path]] = None,
     ) -> str:
         """
         调用API生成归档内容
-        
+
         Args:
             prompt: 归档prompt
             images: 图片列表
-            
+            videos: 视频列表（video_direct_mode 下直接以 base64 传入）
+
         Returns:
             str: 生成的归档文本
         """
@@ -152,7 +163,7 @@ class MaterialArchiver:
         }
 
         content_parts = [{"type": "text", "text": prompt}]
-        
+
         # 添加图片
         if images:
             for img_path in images[:20]:  # 归档可接受更多图片
@@ -163,22 +174,42 @@ class MaterialArchiver:
                         "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}
                     })
                 except Exception as e:
-                    logger.warning(f"⚠️  图片读取失败: {e}")
+                    logger.warning(f"  图片读取失败: {e}")
+
+        # 添加视频（video_direct_mode：直接以 base64 传给 VLM，不抽帧）
+        if videos:
+            for video_path in videos[:getattr(settings, "max_videos", 3)]:
+                try:
+                    video_data = base64.standard_b64encode(video_path.read_bytes()).decode("utf-8")
+                    video_ext = video_path.suffix.lower()
+                    mime_type = {
+                        ".mp4": "video/mp4",
+                        ".mov": "video/quicktime",
+                        ".avi": "video/x-msvideo",
+                        ".mkv": "video/x-matroska",
+                        ".webm": "video/webm",
+                    }.get(video_ext, "video/mp4")
+                    content_parts.append({
+                        "type": "video_url",
+                        "video_url": {"url": f"data:{mime_type};base64,{video_data}"}
+                    })
+                except Exception as e:
+                    logger.warning(f"  视频读取失败: {e}")
 
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": content_parts}],
-            "max_tokens": 4096,  # 归档需要更长输出
-            "temperature": 0.4,
+            "max_tokens": settings.vlm_max_tokens,
+            "temperature": settings.vlm_temperature,
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:  # 归档可能较慢
+        async with httpx.AsyncClient(timeout=settings.vlm_timeout_ms / 1000.0) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=payload,
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 return result["choices"][0]["message"]["content"]
@@ -200,7 +231,7 @@ class MaterialArchiver:
         # 检查是否已归档
         report_path = self.output_dir / f"{material_id}_report.md"
         if report_path.exists():
-            logger.debug(f"⏭️  已归档，跳过: {material_id}")
+            logger.debug(f"⏭  已归档，跳过: {material_id}")
             return {
                 "material_id": material_id,
                 "status": "skipped",
@@ -216,7 +247,7 @@ class MaterialArchiver:
             videos.extend(folder_path.glob(ext))
 
         if not images and not videos:
-            logger.warning(f"⚠️  空文件夹: {material_id}")
+            logger.warning(f"  空文件夹: {material_id}")
             return {
                 "material_id": material_id,
                 "status": "empty",
@@ -229,36 +260,52 @@ class MaterialArchiver:
         confidence = label_info.get("confidence", 0.0)
         reasoning = label_info.get("reasoning", "")
 
-        # 处理视频素材：抽帧转换为图片序列（归档可接受更多图片）
+        # 处理视频素材
         frame_images = []
+        video_files_for_archive = []
         if videos:
-            try:
-                from .video_utils import VideoProcessor
-                
-                with VideoProcessor(
-                    default_fps=1.0,
-                    default_max_frames=30,  # 归档时可接受更多帧
-                    default_target_count=15, # 归档需要更详细的帧
-                    keep_frames=False,
-                ) as processor:
-                    
-                    for video in videos[:2]:  # 归档时最多处理2个视频
-                        sampled_frames, video_info = processor.process_video(video)
-                        frame_images.extend(sampled_frames)
-                        
-                        logger.debug(
-                            f"🎬 视频抽帧(归档): {video.name} → "
-                            f"{len(sampled_frames)}帧 ({video_info['duration']}s)"
-                        )
-                
-                if frame_images:
-                    logger.info(f"   📹 归档视频抽帧完成: {len(videos)}个视频 → {len(frame_images)}帧")
-                
-            except Exception as e:
-                logger.warning(f"⚠️  归档视频抽帧失败，将仅使用原始图片: {e}")
+            if getattr(settings, "video_direct_mode", True):
+                # 视频直传架构：直接把视频 base64 传给 VLM，不抽帧（不依赖 ffmpeg）
+                logger.info(f"视频直接模式: 将 {len(videos)} 个视频直接传给模型生成归档")
+                video_files_for_archive = videos[:getattr(settings, "max_videos", 3)]
+            else:
+                # 降级方案：用 ffmpeg 抽帧（需要系统安装 ffmpeg）
+                try:
+                    from .video_utils import VideoProcessor
+
+                    with VideoProcessor(
+                        default_fps=1.0,
+                        default_max_frames=30,  # 归档时可接受更多帧
+                        default_target_count=15, # 归档需要更详细的帧
+                        keep_frames=False,
+                    ) as processor:
+
+                        for video in videos[:2]:  # 归档时最多处理2个视频
+                            sampled_frames, video_info = processor.process_video(video)
+                            frame_images.extend(sampled_frames)
+
+                            logger.debug(
+                                f" 视频抽帧(归档): {video.name} → "
+                                f"{len(sampled_frames)}帧 ({video_info['duration']}s)"
+                            )
+
+                    if frame_images:
+                        logger.info(f"    归档视频抽帧完成: {len(videos)}个视频 → {len(frame_images)}帧")
+
+                except Exception as e:
+                    logger.warning(f"  归档视频抽帧失败，将仅使用原始图片/直传视频: {e}")
 
         # 合并所有可用的图片（原始图片 + 抽帧图片）
         all_images = list(images) + frame_images
+
+        # 既无图片也无法提供视频输入时，跳过 API 调用（避免空跑）
+        if not all_images and not video_files_for_archive:
+            logger.warning(f"  {material_id}: 无可用视觉输入(图片读取失败且视频不可用)，跳过归档")
+            return {
+                "material_id": material_id,
+                "status": "skipped",
+                "error": "无可用视觉输入",
+            }
 
         try:
             # 构建归档prompt（根据是否有视频调整提示）
@@ -284,10 +331,11 @@ class MaterialArchiver:
 [列出3-5个综合标签，用逗号分隔]
 """
 
-            # 调用API生成归档（归档可接受更多图片，最多20张）
+            # 调用API生成归档（归档可接受更多图片，最多20张；视频直传最多 max_videos 个）
             archive_text = await self._call_api_for_archive(
                 prompt=archive_prompt,
                 images=all_images[:20],
+                videos=video_files_for_archive,
             )
 
             # 组装完整报告
@@ -316,11 +364,11 @@ class MaterialArchiver:
                 "timestamp": datetime.now().isoformat(),
             }
             
-            logger.success(f"✅ 归档完成: {material_id} → {report_path.name}")
+            logger.success(f" 归档完成: {material_id} → {report_path.name}")
             return result
 
         except Exception as e:
-            logger.error(f"❌ 归档失败 {material_id}: {e}")
+            logger.error(f" 归档失败 {material_id}: {e}")
             return {
                 "material_id": material_id,
                 "status": "failed",
@@ -344,7 +392,7 @@ class MaterialArchiver:
 
         total = len(folders)
         logger.info(f"\n{'='*60}")
-        logger.info(f"📦 开始归档处理")
+        logger.info(f" 开始归档处理")
         logger.info(f"   Provider: {self.provider}")
         logger.info(f"   素材总数: {total}")
         logger.info(f"   输出目录: {self.output_dir}")
@@ -376,12 +424,12 @@ class MaterialArchiver:
                     progress_callback(i + 1, total, result)
 
             except Exception as e:
-                logger.error(f"❌ 未捕获异常 {folder.name}: {e}")
+                logger.error(f" 未捕获异常 {folder.name}: {e}")
                 stats["failed"] += 1
 
         # 输出统计
         logger.info(f"\n{'='*60}")
-        logger.info(f"📊 归档完成统计")
+        logger.info(f" 归档完成统计")
         logger.info(f"{'='*60}")
         logger.info(f"总素材数: {stats['total']}")
         logger.info(f"成功: {stats['success']}")

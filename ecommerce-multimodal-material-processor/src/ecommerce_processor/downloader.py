@@ -59,9 +59,9 @@ class MaterialDownloader:
             try:
                 with open(self.status_file, "r", encoding="utf-8") as f:
                     self._status = json.load(f)
-                logger.info(f"📦 加载下载状态: {len(self._status)} 条记录")
+                logger.info(f" 加载下载状态: {len(self._status)} 条记录")
             except Exception as e:
-                logger.warning(f"⚠️  状态文件损坏，将重新开始: {e}")
+                logger.warning(f"  状态文件损坏，将重新开始: {e}")
                 self._status = {}
 
     def _save_status(self) -> None:
@@ -70,7 +70,7 @@ class MaterialDownloader:
             with open(self.status_file, "w", encoding="utf-8") as f:
                 json.dump(self._status, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"❌ 状态保存失败: {e}")
+            logger.error(f" 状态保存失败: {e}")
 
     def read_excel_urls(self) -> List[Dict]:
         """
@@ -82,7 +82,7 @@ class MaterialDownloader:
         if not self.excel_path or not self.excel_path.exists():
             raise FileNotFoundError(f"Excel文件不存在: {self.excel_path}")
 
-        logger.info(f"📊 读取Excel/CSV: {self.excel_path}")
+        logger.info(f" 读取Excel/CSV: {self.excel_path}")
 
         # 根据扩展名选择读取方式
         suffix = self.excel_path.suffix.lower()
@@ -142,7 +142,7 @@ class MaterialDownloader:
         material_dir = self.output_dir / material_id
         
         if material_dir.exists() and any(material_dir.iterdir()):
-            logger.debug(f"⏭️  已存在，跳过: {material_id}")
+            logger.debug(f"⏭  已存在，跳过: {material_id}")
             return {
                 "material_id": material_id,
                 "url": url,
@@ -154,7 +154,7 @@ class MaterialDownloader:
         if self._status.get(material_id, {}).get("status") == "failed":
             fail_count = self._status[material_id].get("fail_count", 0)
             if fail_count >= 3:
-                logger.warning(f"⚠️  多次失败，跳过: {material_id} (失败{fail_count}次)")
+                logger.warning(f"  多次失败，跳过: {material_id} (失败{fail_count}次)")
                 return {
                     "material_id": material_id,
                     "url": url,
@@ -181,7 +181,7 @@ class MaterialDownloader:
             file_path = material_dir / filename
 
             # 下载文件
-            logger.debug(f"⬇️  下载: {material_id} → {filename}")
+            logger.debug(f"  下载: {material_id} → {filename}")
             
             with httpx.stream("GET", url, timeout=30.0, follow_redirects=True) as response:
                 response.raise_for_status()
@@ -209,19 +209,19 @@ class MaterialDownloader:
 
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP错误 {e.response.status_code}: {url}"
-            logger.warning(f"❌ {error_msg}")
+            logger.warning(f" {error_msg}")
             self._record_failure(material_id, url, error_msg)
             return {"material_id": material_id, "url": url, "status": "failed", "error": error_msg}
 
         except httpx.TimeoutException:
             error_msg = f"下载超时: {url}"
-            logger.warning(f"❌ {error_msg}")
+            logger.warning(f" {error_msg}")
             self._record_failure(material_id, url, error_msg)
             return {"material_id": material_id, "url": url, "status": "failed", "error": error_msg}
 
         except Exception as e:
             error_msg = f"下载失败: {str(e)}"
-            logger.error(f"❌ {material_id}: {error_msg}")
+            logger.error(f" {material_id}: {error_msg}")
             self._record_failure(material_id, url, error_msg)
             return {"material_id": material_id, "url": url, "status": "failed", "error": error_msg}
 
@@ -252,7 +252,7 @@ class MaterialDownloader:
 
         total = len(urls_list)
         logger.info(f"\n{'='*60}")
-        logger.info(f"📥 开始素材下载")
+        logger.info(f" 开始素材下载")
         logger.info(f"   文件: {self.excel_path}")
         logger.info(f"   总数: {total}")
         logger.info(f"   并发: {self.workers}")
@@ -294,7 +294,7 @@ class MaterialDownloader:
                         stats["failed"] += 1
 
                 except Exception as e:
-                    logger.error(f"❌ 未捕获异常: {e}")
+                    logger.error(f" 未捕获异常: {e}")
                     stats["failed"] += 1
 
         # 输出统计
@@ -305,7 +305,7 @@ class MaterialDownloader:
     def _print_stats(self, stats: Dict) -> None:
         """打印统计摘要"""
         logger.info(f"\n{'='*60}")
-        logger.info(f"📊 下载完成统计")
+        logger.info(f" 下载完成统计")
         logger.info(f"{'='*60}")
         logger.info(f"总URL数: {stats['total']}")
         logger.info(f"成功: {stats['success']} ({stats['success']/max(stats['total'],1)*100:.1f}%)")
@@ -317,11 +317,11 @@ class MaterialDownloader:
         logger.info(f"   详见 download_status.json 获取详细信息")
 
         if stats["errors"]:
-            logger.error(f"\n❌ 错误详情:")
+            logger.error(f"\n 错误详情:")
             for err in stats["errors"][:10]:
                 logger.error(f"  - {err.get('material_id')}: {err.get('error', 'Unknown')}")
 
-        logger.info(f"\n💾 下载状态已保存: {self.status_file}")
+        logger.info(f"\n 下载状态已保存: {self.status_file}")
         logger.info(f"   下次运行将自动跳过已下载的素材")
         logger.info(f"{'='*60}")
 
@@ -367,7 +367,7 @@ def download_from_local_directory(
         "total_videos": videos,
     }
 
-    logger.info(f"\n📂 本地目录扫描结果:")
+    logger.info(f"\n 本地目录扫描结果:")
     logger.info(f"   路径: {materials_dir}/")
     logger.info(f"   素材文件夹: {len(folders)} 个")
     logger.info(f"   图片: {images} 张")

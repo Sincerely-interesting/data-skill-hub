@@ -1,10 +1,10 @@
-﻿# 📦 安装指南 (Installation Guide)
+﻿#  安装指南 (Installation Guide)
 
 > **完整的电商多模态素材处理Pipeline安装与配置手册** | 从零开始到生产就绪
 
 ---
 
-## ✅ 前置要求检查清单
+##  前置要求检查清单
 
 在开始安装之前,请确保您的系统满足以下所有要求:
 
@@ -33,13 +33,13 @@ python --version
 
 ### 网络连接
 
-- ✅ 可访问 PyPI (pypi.org) 用于下载依赖包
-- ✅ 可访问 AI Provider API端点(Google/OpenAI/MiniMax等)
-- ⚠️ 如果使用代理,请确保已正确配置 `HTTP_PROXY` 和 `HTTPS_PROXY`
+-  可访问 PyPI (pypi.org) 用于下载依赖包
+-  可访问 AI Provider API端点(Google/OpenAI/MiniMax等)
+-  如果使用代理,请确保已正确配置 `HTTP_PROXY` 和 `HTTPS_PROXY`
 
 ---
 
-## 🚀 快速安装 (3步完成)
+##  快速安装 (3步完成)
 
 ### 步骤1: 克隆项目并进入目录
 
@@ -69,10 +69,10 @@ which python
 ```
 
 **为什么要使用虚拟环境?**
-- 🔒 避免污染系统Python环境
-- 🎯 确保依赖版本一致性
-- 🔄 方便项目迁移和部署
-- 🛡️ 隔离不同项目的依赖冲突
+-  避免污染系统Python环境
+-  确保依赖版本一致性
+-  方便项目迁移和部署
+-  隔离不同项目的依赖冲突
 
 ### 步骤3: 安装核心依赖
 
@@ -95,7 +95,7 @@ pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 ---
 
-## ⚙️ 详细安装指南
+##  详细安装指南
 
 ### 方法A: 标准安装(推荐)
 
@@ -255,7 +255,7 @@ python run_pipeline.py doctor
 
 ---
 
-## 🔧 环境配置
+##  环境配置
 
 ### 1. 创建环境变量文件
 
@@ -389,7 +389,7 @@ ALERT_EMAIL=admin@example.com
 
 ### 3. 敏感信息保护
 
-⚠️ **重要安全提醒**:
+ **重要安全提醒**:
 
 ```bash
 # 1. 确保.gitignore中包含.env
@@ -404,7 +404,7 @@ git status  # 确认.env不在暂存区
 
 ---
 
-## ✅ 安装验证
+##  安装验证
 
 ### 运行环境检查
 
@@ -417,37 +417,37 @@ python run_pipeline.py doctor
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║         🏥 E-commerce Material Processor - Doctor Report       ║
+║          E-commerce Material Processor - Doctor Report       ║
 ╠══════════════════════════════════════════════════════════════╣
-║ ✅ Python Version: 3.11.5 (OK)                                ║
-║ ✅ pip Version: 24.0 (OK)                                    ║
-║ ✅ Virtual Environment: Active (venv)                         ║
+║  Python Version: 3.11.5 (OK)                                ║
+║  pip Version: 24.0 (OK)                                    ║
+║  Virtual Environment: Active (venv)                         ║
 ║                                                              ║
-║ 📦 Dependencies Check:                                       ║
-║   ✅ pandas 2.2.0                                            ║
-║   ✅ openai 1.30.0                                           ║
-║   ✅ Pillow 10.2.0                                           ║
-║   ✅ opencv-python 4.9.0                                     ║
-║   ✅ pydantic 2.6.0                                          ║
-║   ⚠️ lancedb Not Installed (Optional)                        ║
+║  Dependencies Check:                                       ║
+║    pandas 2.2.0                                            ║
+║    openai 1.30.0                                           ║
+║    Pillow 10.2.0                                           ║
+║    opencv-python 4.9.0                                     ║
+║    pydantic 2.6.0                                          ║
+║    lancedb Not Installed (Optional)                        ║
 ║                                                              ║
-║ 🔌 API Providers Status:                                     ║
-║   ✅ GOOGLE_API_KEY: Configured                              ║
-║   ❌ MINIMAX_API_KEY: Missing                                ║
-║   ⚠️ MOONSHOT_API_KEY: Not Configured                       ║
+║  API Providers Status:                                     ║
+║    GOOGLE_API_KEY: Configured                              ║
+║    MINIMAX_API_KEY: Missing                                ║
+║    MOONSHOT_API_KEY: Not Configured                       ║
 ║                                                              ║
-║ 📂 Directory Structure:                                      ║
-║   ✅ ./cache: Exists                                         ║
-║   ✅ ./output: Exists                                        ║
-║   ✅ ./materials: Ready                                      ║
+║  Directory Structure:                                      ║
+║    ./cache: Exists                                         ║
+║    ./output: Exists                                        ║
+║    ./materials: Ready                                      ║
 ║                                                              ║
-║ 💾 Disk Space: 45.2GB Available (✅ Sufficient)              ║
-║ 🧵 System Resources: 16GB RAM, 8 CPUs (✅ Good)              ║
+║  Disk Space: 45.2GB Available ( Sufficient)              ║
+║  System Resources: 16GB RAM, 8 CPUs ( Good)              ║
 ╚══════════════════════════════════════════════════════════════╝
 
-🎉 Overall Status: HEALTHY (7/10 checks passed)
-⚠️  Warnings: 2 (Non-critical, can proceed)
-❌ Errors: 1 (MINIMAX_API_KEY required for MiniMax provider)
+ Overall Status: HEALTHY (7/10 checks passed)
+  Warnings: 2 (Non-critical, can proceed)
+ Errors: 1 (MINIMAX_API_KEY required for MiniMax provider)
 ```
 
 ### 功能测试
@@ -465,7 +465,7 @@ python run_pipeline.py archive --cache-file labeling_cache.json --dry-run
 
 ---
 
-## 🐛 常见问题排查 (Troubleshooting)
+##  常见问题排查 (Troubleshooting)
 
 ### 问题1: pip安装超时
 
@@ -605,7 +605,7 @@ curl -H "Authorization: Bearer $GOOGLE_API_KEY" \
 
 ---
 
-## 🔄 升级指南
+##  升级指南
 
 ### 从旧版本升级
 
@@ -647,7 +647,7 @@ pip install -r requirements-lock.txt
 
 ---
 
-## 🏗️ 生产环境部署
+##  生产环境部署
 
 ### Docker部署(推荐)
 
@@ -787,7 +787,7 @@ server {
 
 ---
 
-## 📊 性能优化建议
+##  性能优化建议
 
 ### 硬件配置推荐
 
@@ -821,7 +821,7 @@ sudo sysctl -p
 
 ---
 
-## 📝 安装后检查清单
+##  安装后检查清单
 
 安装完成后,请逐项确认:
 
@@ -840,16 +840,16 @@ sudo sysctl -p
 
 ---
 
-## 🆘 获取帮助
+##  获取帮助
 
 ### 文档资源
 
-- 📘 **完整README**: [README.md](./README.md)
-- 🛠️ **SKILL定义**: [SKILL.md](./SKILL.md)
-- 🏗️ **架构设计**: [references/architecture-guide.md](./references/architecture-guide.md)
-- 🔌 **MCP协议**: [references/mcp-implementation-guide.md](./references/mcp-implementation-guide.md)
-- 🗺️ **发展路线图**: [references/auto-collection-roadmap.md](./references/auto-collection-roadmap.md)
-- 🏷️ **标注标准**: [references/labeling-criteria.md](./references/labeling-criteria.md)
+-  **完整README**: [README.md](./README.md)
+-  **SKILL定义**: [SKILL.md](./SKILL.md)
+-  **架构设计**: [references/architecture-guide.md](./references/architecture-guide.md)
+-  **MCP协议**: [references/mcp-implementation-guide.md](./references/mcp-implementation-guide.md)
+-  **发展路线图**: [references/auto-collection-roadmap.md](./references/auto-collection-roadmap.md)
+-  **标注标准**: [references/labeling-criteria.md](./references/labeling-criteria.md)
 
 ### 社区支持
 
