@@ -33,13 +33,19 @@ class Settings(BaseSettings):
 
     # 二、VLM 配置（视觉模型，用于打标 / 归档看图）
     # 与下方"九、LLM 参数"完全独立——即使两者地址/参数相同，也必须分开填写。
-    vlm_model: str = "minicpm-v-4.6"
+    vlm_model: str = "gemma-4-12b-it"
     vlm_provider: str = "custom_minmax"
     vlm_base_url: Optional[str] = None
     vlm_api_key: Optional[str] = None
     vlm_temperature: float = 0.3
     vlm_max_tokens: int = 4000
     vlm_timeout_ms: int = 300000
+    # 视频直传的素材可达基础 URL（可选）：
+    # 当素材是本地文件、且 provider 为远程服务时，video_url 必须是
+    # provider 可直接下载的 *直接 URL*（绝不能是 data:video/...;base64 内嵌）。
+    # 填素材的托管基础地址后自动拼成 {media_base_url}/{material_id}/{filename}；
+    # 留空：本地文件回退为 file:// 绝对路径（仅 provider 与代码同机时有效）。
+    media_base_url: Optional[str] = None
 
     # 三、图片处理
     image_max_size: int = 768
@@ -149,6 +155,28 @@ class Settings(BaseSettings):
         if not self.llm_api_key and self.custom_minmax_api_key:
             self.llm_api_key = self.custom_minmax_api_key
         return self
+
+def resolve_video_url(video_path, material_id: str) -> str:
+    """把视频解析为 provider 可访问的 *直接 URL*（绝不转 base64）。
+
+    对接标准（OpenAI-compatible / NVIDIA NIM / crossmodel）：
+        video_url.url 必须是 provider 可直接下载的 URL，
+        不能是 data:video/...;base64,... 形式的 base64 内嵌。
+
+    解析优先级：
+        1) 已是 http(s) URL → 直接用
+        2) 配置了 MEDIA_BASE_URL → {base}/{material_id}/{filename}
+        3) 兜底 → file:// 绝对路径（仅当 provider 与代码同机时有效；
+           远程 provider 请先托管素材，或起本地静态服务后填 MEDIA_BASE_URL）
+    """
+    s = str(video_path)
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    if settings.media_base_url:
+        base = settings.media_base_url.rstrip("/")
+        return f"{base}/{material_id}/{Path(video_path).name}"
+    return Path(video_path).resolve().as_uri()
+
 
 _settings_instance = None
 

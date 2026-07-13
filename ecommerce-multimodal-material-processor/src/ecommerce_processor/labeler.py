@@ -18,7 +18,7 @@ from loguru import logger
 import httpx
 from tqdm import tqdm
 
-from .config import settings
+from .config import settings, resolve_video_url
 
 
 class QuotaExhaustedError(Exception):
@@ -441,24 +441,19 @@ class MaterialLabeler:
                     logger.warning(f"  图片读取失败 {img_path}: {e}")
 
         if videos and getattr(settings, 'video_direct_mode', True):
+            material_id = videos[0].parent.name
             for video_path in videos[:getattr(settings, 'max_videos', 3)]:
                 try:
-                    video_data = base64.standard_b64encode(video_path.read_bytes()).decode("utf-8")
-                    video_ext = video_path.suffix.lower()
-                    mime_type = {
-                        '.mp4': 'video/mp4',
-                        '.mov': 'video/quicktime',
-                        '.avi': 'video/x-msvideo',
-                        '.mkv': 'video/x-matroska',
-                        '.webm': 'video/webm',
-                    }.get(video_ext, 'video/mp4')
+                    # 直接传输：把整个视频作为 video_url 直接传给模型，
+                    # 绝不转 base64（见 config.resolve_video_url）。
+                    video_url = resolve_video_url(video_path, material_id)
                     content_parts.append({
                         "type": "video_url",
-                        "video_url": {"url": f"data:{mime_type};base64,{video_data}"}
+                        "video_url": {"url": video_url}
                     })
-                    logger.info(f"已添加视频文件: {video_path.name}")
+                    logger.info(f"已添加视频（直接传输，非base64）: {video_url}")
                 except Exception as e:
-                    logger.warning(f"视频读取失败 {video_path}: {e}")
+                    logger.warning(f"视频URL解析失败 {video_path}: {e}")
 
         payload = {
             "model": self.model,

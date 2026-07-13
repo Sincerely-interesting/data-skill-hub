@@ -213,7 +213,7 @@ def main():
     archive_providers = available_providers
     
     parser_archive.add_argument("--provider", "-p",
-                                default="minicpm",
+                                default="custom_minmax",
                                 choices=archive_providers,
                                 help=f"Provider选择 (可选: {', '.join(archive_providers)})")
     parser_archive.add_argument("--output-dir", "-o", default=None, help="输出目录")

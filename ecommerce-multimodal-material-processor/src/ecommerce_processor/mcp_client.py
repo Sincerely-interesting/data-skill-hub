@@ -900,95 +900,15 @@ class MultimodalMaterialProcessor:
                 results["stats"]["errors"].append(f"图片异常: {img_path.name} - {str(e)}")
         
         # 处理视频（如果启用）
+        # 注意：MiniMax MCP 的 understand_image 仅支持图片，
+        # 且本项目统一禁止“抽帧”（视频必须原样直传），
+        # 故 MCP 路径不对视频做帧分析。如需视频理解，
+        # 请改用支持 video_url 直接传输的 provider。
         if videos and self.enable_video_processing:
-            from .video_utils import VideoProcessor
-            
-            with VideoProcessor(
-                default_fps=1.0,
-                default_max_frames=30,
-                default_target_count=10,
-                keep_frames=False,
-            ) as video_proc:
-                
-                for idx, video_path in enumerate(videos[:2]):  # 最多处理2个视频
-                    try:
-                        logger.info(
-                            f"\n 处理视频 [{idx+1}/{min(len(videos),2)}]: {video_path.name}"
-                        )
-                        
-                        # 抽帧
-                        sampled_frames, video_info = video_proc.process_video(video_path)
-                        results["stats"]["videos_processed"] += 1
-                        
-                        logger.info(
-                            f"    视频信息: {video_info['duration']}s, "
-                            f"{video_info['width']}x{video_info['height']}"
-                        )
-                        
-                        # 分析每个帧
-                        frame_results = []
-                        for frame_idx, frame_path in enumerate(sampled_frames):
-                            try:
-                                logger.info(
-                                    f"     分析帧 [{frame_idx+1}/{len(sampled_frames)}]: "
-                                    f"{frame_path.name}"
-                                )
-                                
-                                frame_result, mode = await self.mcp_client.analyze_image(
-                                    frame_path,
-                                    f"{analysis_prompt}\n(这是视频的第{frame_idx+1}帧,"
-                                    f"共{len(sampled_frames)}帧)",
-                                )
-                                
-                                if frame_result:
-                                    frame_results.append({
-                                        "frame_index": frame_idx,
-                                        "filename": frame_path.name,
-                                        "analysis": frame_result,
-                                        "mode": mode,
-                                    })
-                                    results["stats"]["frames_analyzed"] += 1
-                                    all_modes.append(mode)
-                                    
-                            except Exception as e:
-                                logger.error(f"    帧分析异常 {frame_path.name}: {e}")
-                                results["stats"]["errors"].append(
-                                    f"帧异常: {frame_path.name} - {str(e)}"
-                                )
-                        
-                        results["video_results"].append({
-                            "filename": video_path.name,
-                            "video_info": video_info,
-                            "frame_analyses": frame_results,
-                        })
-                        
-                        # 音频提取和转录（如果启用）
-                        if self.enable_audio_transcription and self.whisper_transcriber:
-                            try:
-                                logger.info(f"    提取并转录音频...")
-                                audio_path = self.audio_extractor.extract_audio_from_video(
-                                    video_path,
-                                    output_dir=material_folder / "_temp_audio",
-                                )
-                                
-                                if audio_path:
-                                    transcript = await self.whisper_transcriber.transcribe(audio_path)
-                                    if transcript:
-                                        results["audio_transcript"] = transcript
-                                        logger.success(
-                                            f"    音频转录完成 ({len(transcript)}字符)"
-                                        )
-                                        
-                                        # 清理临时音频文件
-                                        audio_path.unlink(missing_ok=True)
-                                        
-                            except Exception as e:
-                                logger.error(f"    音频处理异常: {e}")
-                                results["stats"]["errors"].append(f"音频异常: {video_path.name}")
-                                
-                    except Exception as e:
-                        logger.error(f" 视频处理异常 {video_path.name}: {e}")
-                        results["stats"]["errors"].append(f"视频异常: {video_path.name} - {str(e)}")
+            logger.warning(
+                f"  MiniMax MCP 路径仅支持图片分析，且本项目禁止抽帧；"
+                f"跳过 {len(videos)} 个视频的帧分析（不抽帧）。"
+            )
         
         # 生成综合摘要
         results["processing_mode"] = (

@@ -12,7 +12,7 @@ from loguru import logger
 import httpx
 from tqdm import tqdm
 
-from .config import settings
+from .config import settings, resolve_video_url
 
 
 class MaterialArchiver:
@@ -49,7 +49,7 @@ class MaterialArchiver:
 
     def __init__(
         self,
-        provider: str = "minicpm",
+        provider: str = "custom_minmax",
         materials_dir: Path = None,
         output_dir: Path = None,
         cache_file: Path = None,
@@ -152,7 +152,7 @@ class MaterialArchiver:
         Args:
             prompt: 归档prompt
             images: 图片列表
-            videos: 视频列表（video_direct_mode 下直接以 base64 传入）
+            videos: 视频列表（直接以 video_url URL 传入，绝不转 base64）
 
         Returns:
             str: 生成的归档文本
@@ -176,25 +176,18 @@ class MaterialArchiver:
                 except Exception as e:
                     logger.warning(f"  图片读取失败: {e}")
 
-        # 添加视频（video_direct_mode：直接以 base64 传给 VLM，不抽帧）
+        # 添加视频（直接以 video_url URL 传给 VLM，绝不转 base64，且不抽帧）
         if videos:
+            material_id = Path(videos[0]).parent.name
             for video_path in videos[:getattr(settings, "max_videos", 3)]:
                 try:
-                    video_data = base64.standard_b64encode(video_path.read_bytes()).decode("utf-8")
-                    video_ext = video_path.suffix.lower()
-                    mime_type = {
-                        ".mp4": "video/mp4",
-                        ".mov": "video/quicktime",
-                        ".avi": "video/x-msvideo",
-                        ".mkv": "video/x-matroska",
-                        ".webm": "video/webm",
-                    }.get(video_ext, "video/mp4")
+                    video_url = resolve_video_url(video_path, material_id)
                     content_parts.append({
                         "type": "video_url",
-                        "video_url": {"url": f"data:{mime_type};base64,{video_data}"}
+                        "video_url": {"url": video_url}
                     })
                 except Exception as e:
-                    logger.warning(f"  视频读取失败: {e}")
+                    logger.warning(f"  视频URL解析失败: {e}")
 
         payload = {
             "model": self.model,
@@ -260,43 +253,17 @@ class MaterialArchiver:
         confidence = label_info.get("confidence", 0.0)
         reasoning = label_info.get("reasoning", "")
 
-        # 处理视频素材
-        frame_images = []
+        # 处理视频素材（视频直接传输，绝对不抽帧）
         video_files_for_archive = []
         if videos:
-            if getattr(settings, "video_direct_mode", True):
-                # 视频直传架构：直接把视频 base64 传给 VLM，不抽帧（不依赖 ffmpeg）
-                logger.info(f"视频直接模式: 将 {len(videos)} 个视频直接传给模型生成归档")
-                video_files_for_archive = videos[:getattr(settings, "max_videos", 3)]
-            else:
-                # 降级方案：用 ffmpeg 抽帧（需要系统安装 ffmpeg）
-                try:
-                    from .video_utils import VideoProcessor
+            # 视频直接传输：把整个视频作为 video_url 直接传给模型，
+            # 不依赖 ffmpeg 抽帧，也不转 base64。
+            # video_url 必须是 provider 可访问的直接 URL（见 config.resolve_video_url）。
+            logger.info(f"视频直接传输: 将 {len(videos)} 个视频直接传给模型生成归档（不抽帧）")
+            video_files_for_archive = videos[:getattr(settings, "max_videos", 3)]
 
-                    with VideoProcessor(
-                        default_fps=1.0,
-                        default_max_frames=30,  # 归档时可接受更多帧
-                        default_target_count=15, # 归档需要更详细的帧
-                        keep_frames=False,
-                    ) as processor:
-
-                        for video in videos[:2]:  # 归档时最多处理2个视频
-                            sampled_frames, video_info = processor.process_video(video)
-                            frame_images.extend(sampled_frames)
-
-                            logger.debug(
-                                f" 视频抽帧(归档): {video.name} → "
-                                f"{len(sampled_frames)}帧 ({video_info['duration']}s)"
-                            )
-
-                    if frame_images:
-                        logger.info(f"    归档视频抽帧完成: {len(videos)}个视频 → {len(frame_images)}帧")
-
-                except Exception as e:
-                    logger.warning(f"  归档视频抽帧失败，将仅使用原始图片/直传视频: {e}")
-
-        # 合并所有可用的图片（原始图片 + 抽帧图片）
-        all_images = list(images) + frame_images
+        # 合并所有可用的图片（仅原始图片；视频走直接传输，不抽帧）
+        all_images = list(images)
 
         # 既无图片也无法提供视频输入时，跳过 API 调用（避免空跑）
         if not all_images and not video_files_for_archive:
@@ -309,7 +276,7 @@ class MaterialArchiver:
 
         try:
             # 构建归档prompt（根据是否有视频调整提示）
-            media_type_hint = "视频素材（已抽帧为图片序列）" if videos else "图片素材"
+            media_type_hint = "视频素材（直接传输）" if videos else "图片素材"
             archive_prompt = f"""请为以下电商素材生成分镜头归档报告。
 
 素材ID: {material_id}
@@ -460,7 +427,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="素材归档报告生成")
     parser.add_argument("--materials-dir", default=None, help="素材目录")
     parser.add_argument("--output-dir", default=None, help="输出目录")
-    parser.add_argument("--provider", default="minicpm")
+    parser.add_argument("--provider", default="custom_minmax")
     parser.add_argument("--media-type", choices=["image", "video", "all"], default="all")
     parser.add_argument("--sample", type=int, default=None, help="采样数量")
     

@@ -44,6 +44,10 @@ class DependencyChecker:
 
         "httpx",
 
+        "openpyxl",   # Excel 导出/读取引擎（exporter.py / downloader.py 依赖）
+
+        "xlrd",       # .xls 读取（downloader.py 依赖）
+
     ]
 
 

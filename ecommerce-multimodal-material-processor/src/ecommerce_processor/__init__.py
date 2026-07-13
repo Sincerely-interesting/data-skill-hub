@@ -5,7 +5,7 @@
 - 素材获取（本地目录/Excel下载）
 - 视觉AI打标（8种Provider，含MCP协议）
 - 分镜头归档报告生成
-- 视频抽帧与多模态处理
+- 视频直接传输（不抽帧）与多模态处理
 - 缓存断点续传
 - Excel导出
 """
@@ -14,7 +14,7 @@ __version__ = "1.1.0"
 __author__ = "E-commerce Material Processing Team"
 
 # 核心模块
-from .config import settings
+from .config import settings, resolve_video_url
 from .deps_checker import check_dependencies
 from .labeler import MaterialLabeler, QuotaExhaustedError
 from .archiver import MaterialArchiver
@@ -45,6 +45,7 @@ __all__ = [
     
     # 核心配置和工具
     "settings",
+    "resolve_video_url",
     "check_dependencies",
     
     # 核心业务模块
