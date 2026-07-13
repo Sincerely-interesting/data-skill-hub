@@ -2,6 +2,10 @@
 
 from pathlib import Path
 from typing import List, Optional
+import base64
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from pydantic_settings import BaseSettings
@@ -41,10 +45,12 @@ class Settings(BaseSettings):
     vlm_max_tokens: int = 4000
     vlm_timeout_ms: int = 300000
     # 视频直传的素材可达基础 URL（可选）：
-    # 当素材是本地文件、且 provider 为远程服务时，video_url 必须是
-    # provider 可直接下载的 *直接 URL*（绝不能是 data:video/...;base64 内嵌）。
+    # 当素材是本地文件、且 provider 为远程服务时，video_url 通常是
+    # provider 可直接下载的 *直接 URL*；但 MiniCPM-vLLM 系（面壁托管）例外——
+    # 它要求整段视频以 data:video/...;base64 内嵌进请求体，由
+    # config.build_video_part 的 minicpm_base64 形态在本地读字节生成（不抽帧）。
     # 填素材的托管基础地址后自动拼成 {media_base_url}/{material_id}/{filename}；
-    # 留空：本地文件回退为 file:// 绝对路径（仅 provider 与代码同机时有效）。
+    # 留空：本地文件回退为 file:// 绝对路径（minicpm_base64 会读该文件字节 base64）。
     media_base_url: Optional[str] = None
 
     # 三、图片处理
@@ -87,9 +93,22 @@ class Settings(BaseSettings):
     llm_base_url: Optional[str] = None
     llm_api_key: Optional[str] = None
 
-    # 十、分析模板
-    analysis_template: str = "full_dimension"
+    # 十、分析模板（归档提示词参照的模板，由配置文件控制读取哪一个）
+    #   archive_template 取值：
+    #     "storyboard"      → 视频分镜头脚本标准格式模板（docs/STORYBOARD_TEMPLATE_STANDARD.md）
+    #                         用于"把视频还原成视频原文（分镜头脚本）"，按模板结构反向拆解。
+    #     "full_dimension"  → 商品素材全维内容理解分析模板（docs/ANALYSIS_TEMPLATE_FULL_DIMENSION.md）
+    #                         用于多维度结构化理解分析。
+    #   两种模板均为本地 ./docs/* 文件，通过 .env 的 ARCHIVE_TEMPLATE 切换读取。
+    archive_template: str = "storyboard"
     video_direct_mode: bool = True
+    # 视频部件字段形态：不同 provider 的"视频引用"字段名/传递方式不同，必须匹配否则被拒。
+    #   "openai_compatible" → {"type":"video_url","video_url":{"url":u}}   （URL 引用，端点需能 fetch）
+    #   "gemma_hf"         → {"type":"video","video":u}                （Gemma HF Transformers，用户贴的官方文档）
+    #   "gemini"            → {"file_data":{"mime_type":"video/mp4","file_uri":u}} （Gemini generateContent，u 须为 GCS/上传 URI）
+    #   "minicpm_base64"    → {"type":"video_url","video_url":{"url":"data:video/mp4;base64,..."}} （面壁/MiniCPM-vLLM 官方 cookbook，整段视频 base64 内联，不抽帧）
+    # 与 resolve_video_url（本地回退 file:// 后由本形态读字节 base64）协同生效。
+    video_payload_format: str = "openai_compatible"
     template_path_full_dimension: str = "docs/ANALYSIS_TEMPLATE_FULL_DIMENSION.md"
     template_path_storyboard: str = "docs/STORYBOARD_TEMPLATE_STANDARD.md"
 
@@ -104,6 +123,17 @@ class Settings(BaseSettings):
     max_video_size_mb: float = 500.0
     allowed_image_types: str = ".jpg,.jpeg,.png,.webp,.gif"
     allowed_video_types: str = ".mp4,.mov,.avi,.mkv"
+
+    # 十二·五、请求体上限与自适应压缩（修复打标 413 request_too_large）
+    #   minicpm_base64 形态会把整段视频 base64 内联，叠加多张图片后极易超出
+    #   端点请求体上限（如 ModelBest ~8-10MB），返回 HTTP 413。
+    #   打开 auto_compress_oversize 后：
+    #     - 视频：build_video_part 生成 base64 前，若超预算用 ffmpeg 整段重编码到达标（不抽帧）
+    #     - 图片：labeler 发送前用 Pillow 降分辨率重压 JPEG
+    #   413 在 labeler 中被视为"不可重试"，直接失败不再空烧 5 次指数退避。
+    max_request_mb: float = 8.0            # 单次请求体软上限（MB），留余量应对端点硬限
+    auto_compress_oversize: bool = True    # 超限时是否自动压缩视频/图片
+    ffmpeg_path: Optional[str] = None      # ffmpeg 可执行路径（留空则用 PATH 中的 ffmpeg）
 
     # 十三、打标阈值
     threshold_strong: float = 80.0
@@ -176,6 +206,110 @@ def resolve_video_url(video_path, material_id: str) -> str:
         base = settings.media_base_url.rstrip("/")
         return f"{base}/{material_id}/{Path(video_path).name}"
     return Path(video_path).resolve().as_uri()
+
+
+_VIDEO_MIME = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".mkv": "video/x-matroska",
+    ".webm": "video/webm",
+    ".m4v": "video/mp4",
+}
+
+
+def _build_minicpm_base64_part(video_url: str) -> dict:
+    """MiniCPM-vLLM 官方 cookbook 形态：整段视频 base64 内联（不抽帧）。
+
+    面壁/MiniCPM 托管端点按 vLLM 约定，视频须作为 data-URI base64 内嵌进
+    请求体，而非远程 URL 引用。此处直接读本地文件字节做 base64
+    （**绝不做抽帧/逐帧**，是整段传），以匹配端点要求。
+    远程 http(s) URL 场景无法在本地 base64，则回退为 openai_compatible 形态
+    （端点可能不支持，仅作尽力而为）。
+    """
+    s = str(video_url)
+    path = None
+    if s.startswith("file://"):
+        path = s[len("file://"):]  # file:///C:/x -> /C:/x
+        if path.startswith("/") and len(path) > 2 and path[2] == ":":
+            path = path[1:]  # /C:/x -> C:/x
+    elif s.startswith("http://") or s.startswith("https://"):
+        logger.warning("minicpm_base64 需要本地文件字节，远程 URL 无法本地 base64，回退为 URL 引用: %s", s)
+        return {"type": "video_url", "video_url": {"url": s}}
+    else:
+        path = s  # 直接是本地路径
+    p = Path(path)
+    if not p.exists():
+        logger.warning("minicpm_base64 找不到本地文件，回退为 URL 引用: %s", video_url)
+        return {"type": "video_url", "video_url": {"url": s}}
+
+    # 自适应压缩：base64 内联会使体积膨胀 ~33%，叠加图片后极易触发端点 413。
+    # 若开启 auto_compress_oversize，则在 base64 前把视频整段重编码到预算内（不抽帧）。
+    src = p
+    if getattr(settings, "auto_compress_oversize", True) and getattr(settings, "max_request_mb", 0):
+        try:
+            from .video_utils import compress_video_to_fit
+            # 预算：请求体软上限 × 0.9（给图片/文本留余量），再折算成原始字节（÷ base64 膨胀 ~1.33）
+            max_bytes = int(settings.max_request_mb * 1024 * 1024 * 0.9 / 1.34)
+            src = compress_video_to_fit(
+                p, max_bytes,
+                ffmpeg_bin=getattr(settings, "ffmpeg_path", None) or "ffmpeg",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("视频自适应压缩失败，改用原始文件: %s", e)
+            src = p
+
+    suffix = src.suffix.lower()
+    mime = _VIDEO_MIME.get(suffix, "video/mp4")
+    data = base64.standard_b64encode(src.read_bytes()).decode("utf-8")
+    return {"type": "video_url", "video_url": {"url": f"data:{mime};base64,{data}"}}
+
+
+def build_video_part(video_url: str) -> dict:
+    """按当前 provider 形态拼装“视频引用”部件。
+
+    对接标准差异（同一段视频在不同 provider 的字段名/传递方式不同）：
+        - openai_compatible: {"type":"video_url","video_url":{"url": video_url}}
+                            （URL 引用，端点需能 fetch 该 URL）
+        - gemma_hf:         {"type":"video","video": video_url}
+        - gemini:            {"file_data":{"mime_type":"video/mp4","file_uri": video_url}}
+        - minicpm_base64:   {"type":"video_url","video_url":{"url":"data:video/mp4;base64,..."}}
+                            （面壁/MiniCPM-vLLM 官方 cookbook：整段视频 base64 内联，
+                             由本函数读本地文件字节生成，**不抽帧、不逐帧**）
+    """
+    fmt = (getattr(settings, "video_payload_format", "openai_compatible") or "openai_compatible").strip().lower()
+    if fmt == "gemma_hf":
+        return {"type": "video", "video": video_url}
+    if fmt == "gemini":
+        return {"file_data": {"mime_type": "video/mp4", "file_uri": video_url}}
+    if fmt == "minicpm_base64":
+        return _build_minicpm_base64_part(video_url)
+    # 默认 / openai_compatible
+    return {"type": "video_url", "video_url": {"url": video_url}}
+
+
+_TEMPLATE_MAP = {
+    "storyboard": "template_path_storyboard",
+    "full_dimension": "template_path_full_dimension",
+}
+
+def resolve_template_path(name: str = None) -> Path:
+    """根据配置（或显式名称）返回归档模板文件的绝对路径。
+
+    模板均为本地 ./docs/* 文件，相对路径以 *仓库根目录* 为基准解析
+    （本文件位于 src/ecommerce_processor/，向上三级即仓库根）。
+    """
+    name = name or settings.archive_template
+    key = _TEMPLATE_MAP.get(name)
+    if not key:
+        raise ValueError(
+            f"未知的归档模板: {name!r}（可选: storyboard / full_dimension）"
+        )
+    p = Path(getattr(settings, key))
+    if not p.is_absolute():
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        p = repo_root / p
+    return p.resolve()
 
 
 _settings_instance = None

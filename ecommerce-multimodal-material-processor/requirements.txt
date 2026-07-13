@@ -32,6 +32,8 @@ pydantic-settings>=2.1.0    # Pydantic settings integration
 loguru>=0.7.0               # Structured logging with rotation
 httpx>=0.25.0               # Async HTTP client (直连多模态端点)
 xlrd>=2.0.1                 # Excel file reading (.xls format)
+reportlab>=4.0.0           # PDF report generation (run_pipeline.py report)
+matplotlib>=3.7.0          # Charts embedded in PDF report (分布图/可靠度环图)
 
 # --- Vector Database & Search (Optional, for Advanced Features) ---
 # These are optional but recommended for production deployments.

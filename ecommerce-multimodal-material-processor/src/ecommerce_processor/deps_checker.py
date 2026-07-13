@@ -218,11 +218,11 @@ class DependencyChecker:
 
         except FileNotFoundError:
 
-            error_msg = "ffmpeg 未安装或不在PATH中（归档抽帧降级不可用，打标主路径不受影响）"
+            error_msg = "ffmpeg 未安装（抽帧已移除，ffmpeg 不再必需；视频走直接URL传输，不影响主路径）"
 
-            self.warnings.append(error_msg + "（归档抽帧降级不可用，打标主路径不受影响）")
+            self.warnings.append(error_msg)
 
-            logger.error(f" {error_msg}")
+            logger.warning(f" {error_msg}")
 
             self.results["ffmpeg"] = False
 

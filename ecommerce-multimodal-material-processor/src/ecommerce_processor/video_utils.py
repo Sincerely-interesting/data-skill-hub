@@ -12,23 +12,159 @@ from typing import List, Optional, Tuple
 from loguru import logger
 
 
-def check_ffmpeg_available() -> bool:
+def check_ffmpeg_available(ffmpeg_bin: str = "ffmpeg") -> bool:
     """
     检查ffmpeg是否可用
+    
+    Args:
+        ffmpeg_bin: ffmpeg 可执行文件路径（默认 PATH 中的 ffmpeg）
     
     Returns:
         bool: ffmpeg是否可用
     """
     try:
         result = subprocess.run(
-            ["ffmpeg", "-version"],
+            [ffmpeg_bin, "-version"],
             capture_output=True,
             text=True,
             timeout=5
         )
         return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
+
+
+# 视频自适应压缩档位：从高画质到低画质依次尝试，命中第一个体积达标的档位即返回。
+# 只做整段重编码（scale + 码率），绝不抽帧/逐帧——与打标"视频直传不抽帧"约定一致。
+_COMPRESS_TIERS = [
+    (720, "1200k"),
+    (540, "800k"),
+    (480, "500k"),
+    (360, "350k"),
+    (320, "250k"),
+    (240, "180k"),
+]
+
+
+def compress_video_to_fit(
+    video_path: Path,
+    max_bytes: int,
+    ffmpeg_bin: str = "ffmpeg",
+    work_dir: Optional[Path] = None,
+) -> Path:
+    """把视频整段重编码到目标字节预算内（用于 base64 内联时绕过端点请求体上限）。
+
+    注意：**只做整段重编码（降分辨率 + 限码率），绝不抽帧/逐帧**，
+    与打标主链路"视频直传、不抽帧"的约定保持一致。
+
+    Args:
+        video_path: 原始视频路径
+        max_bytes: 目标最大原始字节数（调用方应已扣除 base64 ~33% 膨胀与其它 payload 余量）
+        ffmpeg_bin: ffmpeg 可执行文件路径
+        work_dir: 压缩产物临时目录（默认系统临时目录）
+
+    Returns:
+        Path: 达标的压缩文件路径；若原文件已达标 / ffmpeg 不可用 / 全部档位仍超限，
+              则分别返回原文件或"尽力压到最小"的那一档。
+    """
+    video_path = Path(video_path)
+    try:
+        orig_size = video_path.stat().st_size
+    except OSError:
+        return video_path
+
+    # 原文件已在预算内：无需压缩
+    if orig_size <= max_bytes:
+        return video_path
+
+    if not check_ffmpeg_available(ffmpeg_bin):
+        logger.warning(
+            "视频超出请求体预算（%.1fMB > %.1fMB）但 ffmpeg 不可用，"
+            "无法自适应压缩，将按原文件发送（可能触发 413）: %s",
+            orig_size / 1e6, max_bytes / 1e6, video_path.name,
+        )
+        return video_path
+
+    work_dir = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="vid_compress_"))
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    best_path = None
+    best_size = None
+    for height, bitrate in _COMPRESS_TIERS:
+        out = work_dir / f"{video_path.stem}_{height}p.mp4"
+        cmd = [
+            ffmpeg_bin, "-y", "-i", str(video_path),
+            "-vf", f"scale=-2:{height}",
+            "-c:v", "libx264", "-b:v", bitrate, "-preset", "fast",
+            "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart",
+            "-loglevel", "error", str(out),
+        ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=420)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("视频压缩档位 %sp 执行异常: %s", height, e)
+            continue
+        if r.returncode != 0 or not out.exists():
+            logger.warning(
+                "视频压缩档位 %sp 失败: %s", height,
+                (r.stderr.decode("utf-8", "ignore")[-200:] if r.stderr else "unknown"),
+            )
+            continue
+        size = out.stat().st_size
+        # 记录"当前最小"作为全部超限时的兜底
+        if best_size is None or size < best_size:
+            best_size, best_path = size, out
+        if size <= max_bytes:
+            logger.info(
+                "视频自适应压缩达标: %s  %.1fMB → %.1fMB (%sp/%s)",
+                video_path.name, orig_size / 1e6, size / 1e6, height, bitrate,
+            )
+            return out
+
+    if best_path is not None:
+        logger.warning(
+            "视频全部压缩档位仍超预算，返回最小档兜底: %s  %.1fMB → %.1fMB",
+            video_path.name, orig_size / 1e6, (best_size or 0) / 1e6,
+        )
+        return best_path
+
+    return video_path
+
+
+def compress_image_to_bytes(
+    image_path: Path,
+    max_side: int = 1024,
+    quality: int = 80,
+) -> bytes:
+    """把图片降分辨率并重压为 JPEG 字节（用于打标 base64 前瘦身，缓解 413）。
+
+    读取失败或 Pillow 不可用时回退为原始文件字节，保证不中断主流程。
+
+    Args:
+        image_path: 图片路径
+        max_side: 长边最大像素（等比缩放）
+        quality: JPEG 质量（1-95）
+
+    Returns:
+        bytes: 压缩后的 JPEG 字节（失败则原始字节）
+    """
+    image_path = Path(image_path)
+    try:
+        import io
+        from PIL import Image
+
+        with Image.open(image_path) as im:
+            im = im.convert("RGB")
+            im.thumbnail((max_side, max_side))
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=quality, optimize=True)
+            return buf.getvalue()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("图片压缩失败，回退原始字节 %s: %s", image_path, e)
+        try:
+            return image_path.read_bytes()
+        except OSError:
+            return b""
 
 
 def extract_video_frames(

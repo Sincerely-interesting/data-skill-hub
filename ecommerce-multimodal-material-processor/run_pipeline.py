@@ -27,6 +27,7 @@ from ecommerce_processor import (
     MaterialArchiver,
     MaterialDownloader,
     CacheExporter,
+    ReportGenerator,
 )
 from ecommerce_processor.deps_checker import DependencyChecker
 from loguru import logger
@@ -120,6 +121,7 @@ async def cmd_archive(args):
         output_dir=args.output_dir,
         media_type=args.media_type,
         sample=args.sample,
+        template=getattr(args, "archive_template", None),
     )
     
     await archiver.process_all()
@@ -135,6 +137,14 @@ def cmd_export(args):
     )
     
     exporter.export_to_excel()
+    return 0
+
+
+def cmd_report(args):
+    """生成素材分析 PDF 报告命令"""
+    cache_file = args.cache_file or (settings.cache_dir / "labeling_cache.json")
+    generator = ReportGenerator(cache_file=cache_file)
+    generator.generate(args.output)
     return 0
 
 
@@ -160,12 +170,16 @@ def main():
   # 导出Excel
   python run_pipeline.py export --cache-file labeling_cache.json
 
+  # 生成客户版 PDF 报告
+  python run_pipeline.py report --cache-file cache/labeling_cache.json -o 素材内容分析报告.pdf
+
 完整流水线:
   python run_pipeline.py doctor && \\
   python run_pipeline.py download --excel materials.xlsx && \\
   python run_pipeline.py label --provider gemini && \\
   python run_pipeline.py archive --provider minicpm && \\
-  python run_pipeline.py export
+  python run_pipeline.py export && \\
+  python run_pipeline.py report
 """,
     )
 
@@ -218,6 +232,9 @@ def main():
                                 help=f"Provider选择 (可选: {', '.join(archive_providers)})")
     parser_archive.add_argument("--output-dir", "-o", default=None, help="输出目录")
     parser_archive.add_argument("--media-type", "-t", choices=["image", "video", "all"], default="all")
+    parser_archive.add_argument("--archive-template", "-a", default=None,
+                                choices=["storyboard", "full_dimension"],
+                                help="归档模板（覆盖 .env 的 ARCHIVE_TEMPLATE）：storyboard=分镜头脚本还原 / full_dimension=全维分析")
     parser_archive.add_argument("--sample", "-s", type=int, default=None, help="采样数量")
     parser_archive.set_defaults(func=lambda args: asyncio.run(cmd_archive(args)))
 
@@ -227,6 +244,12 @@ def main():
     parser_export.add_argument("--output-dir", "-o", default=None, help="输出目录")
     parser_export.add_argument("--filename", "-f", default=None, help="输出文件名")
     parser_export.set_defaults(func=cmd_export)
+
+    # report 命令（生成面向客户的 PDF 报告）
+    parser_report = subparsers.add_parser("report", help="生成客户版 PDF 分析报告")
+    parser_report.add_argument("--cache-file", "-c", default=None, help="打标缓存 JSON 路径（默认 cache/labeling_cache.json）")
+    parser_report.add_argument("--output", "-o", default="素材分析报告.pdf", help="输出 PDF 路径")
+    parser_report.set_defaults(func=cmd_report)
 
     # 解析参数
     args = parser.parse_args()

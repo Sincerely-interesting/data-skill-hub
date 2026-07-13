@@ -12,7 +12,7 @@ from loguru import logger
 import httpx
 from tqdm import tqdm
 
-from .config import settings, resolve_video_url
+from .config import settings, resolve_video_url, resolve_template_path, build_video_part
 
 
 class MaterialArchiver:
@@ -22,29 +22,21 @@ class MaterialArchiver:
     支持多种Provider，生成结构化的Markdown分镜头报告。
     """
 
-    # 归档模板（Markdown格式）
-    REPORT_TEMPLATE = """# 素材归档报告 - {material_id}
+    # 报告溯源头/尾：模型按模板输出的 markdown 直接作为报告主体，
+    # 仅前后追加最小溯源信息，避免对模型输出二次包裹导致结构重复。
+    PROVENANCE_HEADER = """---
+素材ID: {material_id}
+素材类型: {media_type}
+归档时间: {timestamp}
+Provider: {provider} | 模型: {model}
+---
 
-## 基本信息
-- **素材ID**: {material_id}
-- **素材类型**: {media_type}
-- **处理时间**: {timestamp}
-- **Provider**: {provider}
-- **模型**: {model}
+"""
 
-## 标签信息
-- **主标签**: {label}
-- **置信度**: {confidence:.2%}
-- **判定理由**: {reasoning}
-
-## 场景分析
-{scenes_content}
-
-## 综合标签
-{tags_content}
+    PROVENANCE_FOOTER = """
 
 ---
-*报告生成时间: {timestamp} | Provider: {provider}*
+*本报告由 AI 按配置模板自动归档生成 · Provider: {provider} · 模型: {model} · 时间: {timestamp}*
 """
 
     def __init__(
@@ -55,6 +47,7 @@ class MaterialArchiver:
         cache_file: Path = None,
         media_type: str = "all",
         sample: int = None,
+        template: str = None,
     ):
         """
         初始化归档器
@@ -73,6 +66,8 @@ class MaterialArchiver:
         self.cache_file = Path(cache_file) if cache_file else settings.cache_dir / "labeling_cache.json"
         self.media_type = media_type
         self.sample = sample
+        # 归档模板：显式传入优先，否则读配置文件（archive_template）
+        self.template = (template or settings.archive_template or "storyboard").strip().lower()
         
         # 创建输出目录
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -176,16 +171,14 @@ class MaterialArchiver:
                 except Exception as e:
                     logger.warning(f"  图片读取失败: {e}")
 
-        # 添加视频（直接以 video_url URL 传给 VLM，绝不转 base64，且不抽帧）
+        # 添加视频（直接以 URL 引用传给 VLM，绝不转 base64，且不抽帧）
         if videos:
             material_id = Path(videos[0]).parent.name
             for video_path in videos[:getattr(settings, "max_videos", 3)]:
                 try:
                     video_url = resolve_video_url(video_path, material_id)
-                    content_parts.append({
-                        "type": "video_url",
-                        "video_url": {"url": video_url}
-                    })
+                    # 字段形态由 config.build_video_part 按 video_payload_format 决定
+                    content_parts.append(build_video_part(video_url))
                 except Exception as e:
                     logger.warning(f"  视频URL解析失败: {e}")
 
@@ -208,6 +201,93 @@ class MaterialArchiver:
                 return result["choices"][0]["message"]["content"]
             else:
                 raise Exception(f"API错误 HTTP {response.status_code}: {response.text}")
+
+    def _load_archive_template(self) -> str:
+        """读取配置选定的归档模板全文（由 self.template 决定读哪一个）。
+
+        模板用于让模型 *参照格式* 把视频还原为分镜头脚本原文（storyboard）
+        或做全维内容理解分析（full_dimension）。
+        读取失败则回退为空字符串（调用方退化为内置精简提示词）。
+        """
+        try:
+            tp = resolve_template_path(self.template)
+            text = tp.read_text(encoding="utf-8")
+            logger.info(f"  已载入归档模板[{self.template}]: {tp.name}（{len(text)} 字符）")
+            return text
+        except Exception as e:
+            logger.warning(f"  归档模板[{self.template}]读取失败（{e}），将退化为内置精简提示词")
+            return ""
+
+    def _build_archive_prompt(
+        self,
+        material_id: str,
+        label: str,
+        confidence: float,
+        reasoning: str,
+        template_text: str,
+        media_type_hint: str,
+        template_name: str = None,
+    ) -> str:
+        """构建归档提示词：文本提示词 + 参照模板 + 还原视频原文。
+
+        对接方式对齐 Gemma 视觉视频能力（google-genai 文档）：
+        以 *文本提示词 + 本地视频资源路径* 一并送给模型，模型直接理解视频 ——
+        本仓库通过“URL 引用”（config.resolve_video_url 产出纯 URL，不 base64、不抽帧）
+        配合 config.build_video_part 按 video_payload_format 拼装视频部件实现该语义
+        （openai_compatible / gemma_hf / gemini 三种形态），不抽帧、不转 base64。
+
+        Args:
+            template_text: 模板全文；为空时退化为内置精简分镜头提示词。
+            template_name: 模板类型（storyboard / full_dimension），用于自适应提示词目标措辞。
+        """
+        if template_text:
+            # 依据模板类型调整“目标”措辞：
+            #   storyboard      → 还原成视频原文（分镜头脚本）
+            #   full_dimension → 全维内容理解分析
+            if (template_name or self.template) == "full_dimension":
+                goal = ("请按下方模板对提供的视频做**全维内容理解分析**，"
+                        "覆盖商品/画面/叙事/营销等维度，输出结构化分析 Markdown。")
+            else:
+                goal = ("请严格**参照下方模板**，把提供的视频**还原成视频原文"
+                        "（原始分镜头脚本）** —— 即尽量还原视频原本的"
+                        "叙事结构、画面、运镜、人物动作、台词/旁白/字幕、"
+                        "时长节奏与灯光布光等要素。\n"
+                        "不要做泛泛的内容总结，要\"还原\"：像把这条视频逆向拆解为可直接复用的分镜头脚本。")
+            return f"""你是一名专业的电商视频内容分析专家。{goal}
+
+素材元信息：
+- 素材ID: {material_id}
+- 已知标签: {label}
+- 置信度: {confidence:.2%}
+- 判定理由: {reasoning}
+- 媒体类型: {media_type_hint}
+
+===== 参照模板（输出必须严格遵循其结构与字段） =====
+{template_text}
+===== 模板结束 =====
+
+请直接输出完整的 Markdown 归档文件内容（严格按模板结构，无需额外解释）。"""
+        # 退化兜底：未配置 / 未读取到模板时
+        return f"""请为以下电商素材生成分镜头归档报告（Markdown）。
+
+素材ID: {material_id}
+标签: {label}
+置信度: {confidence:.2%}
+判定理由: {reasoning}
+媒体类型: {media_type_hint}
+
+请按以下格式输出：
+
+## 场景1: [场景描述]
+- **故事脚本**: [简述场景叙事]
+- **运镜方式**: [固定/推拉摇移等]
+- **动作描述**: [主体动作]
+
+## 场景2: ...
+
+## 综合标签
+[列出3-5个综合标签，用逗号分隔]
+"""
 
     async def archive_single_folder(self, folder_path: Path) -> Dict:
         """
@@ -275,28 +355,15 @@ class MaterialArchiver:
             }
 
         try:
-            # 构建归档prompt（根据是否有视频调整提示）
-            media_type_hint = "视频素材（直接传输）" if videos else "图片素材"
-            archive_prompt = f"""请为以下电商素材生成分镜头归档报告。
-
-素材ID: {material_id}
-标签: {label}
-置信度: {confidence:.2%}
-判定理由: {reasoning}
-媒体类型: {media_type_hint}
-
-请按以下格式输出Markdown报告：
-
-## 场景1: [场景描述]
-- **故事线**: [简述场景叙事]
-- **运镜方式**: [固定/推拉摇移等]
-- **动作描述**: [主体动作]
-
-## 场景2: ...
-
-## 综合标签
-[列出3-5个综合标签，用逗号分隔]
-"""
+            # 构建归档prompt：配置文件选定模板 + 还原视频原文指令
+            # 视频以 video_url 本地 path(file://) 直接传入（不抽帧、不 base64），
+            # 对齐 Gemma 视觉视频能力：文本提示词 + 本地资源路径 → AI 分析视频。
+            media_type_hint = "视频素材（直接传输，本地路径）" if videos else "图片素材"
+            template_text = self._load_archive_template()
+            archive_prompt = self._build_archive_prompt(
+                material_id, label, confidence, reasoning, template_text,
+                media_type_hint, template_name=self.template,
+            )
 
             # 调用API生成归档（归档可接受更多图片，最多20张；视频直传最多 max_videos 个）
             archive_text = await self._call_api_for_archive(
@@ -305,18 +372,23 @@ class MaterialArchiver:
                 videos=video_files_for_archive,
             )
 
-            # 组装完整报告
-            report_content = self.REPORT_TEMPLATE.format(
-                material_id=material_id,
-                media_type="视频" if videos else "图片",
-                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                provider=self.provider,
-                model=self.model,
-                label=label,
-                confidence=confidence,
-                reasoning=reasoning or "无",
-                scenes_content=archive_text,
-                tags_content="",  # 从archive_text中提取
+            # 组装最终报告：模型按模板输出的 Markdown 直接作为主体，
+            # 仅前后追加最小溯源信息（不再二次包裹，避免结构重复）。
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            report_content = (
+                self.PROVENANCE_HEADER.format(
+                    material_id=material_id,
+                    media_type="视频" if videos else "图片",
+                    timestamp=ts,
+                    provider=self.provider,
+                    model=self.model,
+                )
+                + archive_text
+                + self.PROVENANCE_FOOTER.format(
+                    provider=self.provider,
+                    model=self.model,
+                    timestamp=ts,
+                )
             )
 
             # 写入报告文件
@@ -416,6 +488,7 @@ class MaterialArchiver:
             output_dir=args.output_dir,
             media_type=args.media_type,
             sample=args.sample,
+            template=getattr(args, "archive_template", None),
         )
         
         await archiver.process_all()

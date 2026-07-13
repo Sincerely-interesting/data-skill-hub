@@ -18,11 +18,22 @@ from loguru import logger
 import httpx
 from tqdm import tqdm
 
-from .config import settings, resolve_video_url
+from .config import settings, resolve_video_url, build_video_part
 
 
 class QuotaExhaustedError(Exception):
     """Provider配额耗尽异常"""
+    pass
+
+
+class PayloadTooLargeError(Exception):
+    """请求体过大异常（HTTP 413）——不可重试。
+
+    minicpm_base64 会把整段视频 base64 内联，叠加多图后可能超过端点请求体上限。
+    这类错误重试同样的请求必然再次失败，因此标记为不可重试，直接失败，
+    避免空烧 max_retries 次指数退避（此前实测会白等 10+20+40+80+160s 并浪费额度）。
+    正确的解法是启用 settings.auto_compress_oversize 让请求在发出前自动压缩到达标。
+    """
     pass
 
 
@@ -430,9 +441,20 @@ class MaterialLabeler:
                 content_parts.append({"type": "text", "text": msg["content"]})
 
         if images:
+            # 是否在 base64 前对图片降分辨率重压（缓解请求体过大 / 413）
+            auto_compress = getattr(settings, "auto_compress_oversize", True)
             for img_path in images[:getattr(settings, 'max_images', 10)]:
                 try:
-                    image_data = base64.standard_b64encode(img_path.read_bytes()).decode("utf-8")
+                    if auto_compress:
+                        from .video_utils import compress_image_to_bytes
+                        img_bytes = compress_image_to_bytes(
+                            img_path,
+                            max_side=getattr(settings, "image_max_size", 1024) or 1024,
+                            quality=getattr(settings, "image_quality", 80) or 80,
+                        )
+                    else:
+                        img_bytes = img_path.read_bytes()
+                    image_data = base64.standard_b64encode(img_bytes).decode("utf-8")
                     content_parts.append({
                         "type": "image_url",
                         "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}
@@ -444,14 +466,15 @@ class MaterialLabeler:
             material_id = videos[0].parent.name
             for video_path in videos[:getattr(settings, 'max_videos', 3)]:
                 try:
-                    # 直接传输：把整个视频作为 video_url 直接传给模型，
-                    # 绝不转 base64（见 config.resolve_video_url）。
+                    # 视频直接传输（不抽帧）：具体字段形态由 config.build_video_part
+                    # 按 video_payload_format 决定——openai_compatible / gemma_hf / gemini
+                    # 为远程 URL 引用（端点自行 fetch）；minicpm_base64 为整段视频
+                    # base64 内联（面壁/MiniCPM-vLLM 约定，仍是整段而非抽帧）。
+                    # 若开启 auto_compress_oversize，base64 前会对超预算视频整段重编码
+                    # 压到 max_request_mb 内（仍不抽帧），以规避端点请求体上限(413)。
                     video_url = resolve_video_url(video_path, material_id)
-                    content_parts.append({
-                        "type": "video_url",
-                        "video_url": {"url": video_url}
-                    })
-                    logger.info(f"已添加视频（直接传输，非base64）: {video_url}")
+                    content_parts.append(build_video_part(video_url))
+                    logger.info(f"已添加视频（{settings.video_payload_format} 形态，不抽帧）: {video_url}")
                 except Exception as e:
                     logger.warning(f"视频URL解析失败 {video_path}: {e}")
 
@@ -491,12 +514,24 @@ class MaterialLabeler:
                         logger.warning(f"  API限流 (HTTP 429): {error_msg}")
                         continue
 
+                    elif response.status_code == 413:
+                        # 请求体过大：重试同样的 payload 必然再次 413，标记为不可重试直接失败，
+                        # 避免空烧 max_retries 次指数退避。请开启 auto_compress_oversize 让请求前自动瘦身。
+                        error_msg = (
+                            f"请求体过大 (HTTP 413): {response.text[:200]}。"
+                            f"已放弃重试；建议开启 AUTO_COMPRESS_OVERSIZE 或调低 MAX_REQUEST_MB。"
+                        )
+                        logger.error(f" {error_msg}")
+                        raise PayloadTooLargeError(error_msg)
+
                     else:
                         error_msg = f"API错误 HTTP {response.status_code}: {response.text}"
                         logger.error(f" {error_msg}")
                         last_error = Exception(error_msg)
 
             except QuotaExhaustedError:
+                raise
+            except PayloadTooLargeError:
                 raise
             except httpx.TimeoutException:
                 last_error = Exception("API请求超时")
@@ -605,7 +640,7 @@ class MaterialLabeler:
         videos = []
         for ext in ["*.jpg", "*.jpeg", "*.png", "*.webp"]:
             images.extend(folder_path.glob(ext))
-        for ext in ["*.mp4", "*.mov", ".avi"]:
+        for ext in ["*.mp4", "*.mov", "*.avi"]:
             videos.extend(folder_path.glob(ext))
 
         if not images and not videos:
@@ -658,8 +693,8 @@ class MaterialLabeler:
                 "material_id": material_id,
                 "label": "其他",
                 "confidence": 0.0,
-                "error": "无可用图像（图片读取失败或视频抽帧失败）",
-                "reasoning": "素材文件夹中无有效图片且视频抽帧全部失败",
+                "error": "无可用图像（图片读取失败）且视频直接传输不可用",
+                "reasoning": "素材文件夹中无有效图片，且视频未提供或直接传输失败",
                 "provider": None,
                 "model": None,
                 "timestamp": datetime.now().isoformat(),
@@ -742,6 +777,17 @@ class MaterialLabeler:
                     "raw_response": (response_text or "")[:500],
                     "timestamp": datetime.now().isoformat(),
                 }
+
+        except PayloadTooLargeError as e:
+            # 请求体过大：不可重试。不写入缓存，便于下次调低 MAX_REQUEST_MB / 开启压缩后重跑。
+            logger.error(f" 请求体过大，跳过（不重试）{material_id}: {e}")
+            return {
+                "material_id": material_id,
+                "label": "处理失败",
+                "confidence": 0.0,
+                "error": f"请求体过大(413): {str(e)[:200]}",
+                "timestamp": datetime.now().isoformat(),
+            }
 
         except QuotaExhaustedError as e:
             logger.error(f" Provider配额耗尽: {e}")

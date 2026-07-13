@@ -14,12 +14,13 @@ __version__ = "1.1.0"
 __author__ = "E-commerce Material Processing Team"
 
 # 核心模块
-from .config import settings, resolve_video_url
+from .config import settings, resolve_video_url, resolve_template_path, build_video_part
 from .deps_checker import check_dependencies
-from .labeler import MaterialLabeler, QuotaExhaustedError
+from .labeler import MaterialLabeler, QuotaExhaustedError, PayloadTooLargeError
 from .archiver import MaterialArchiver
 from .downloader import MaterialDownloader
 from .exporter import CacheExporter
+from .reporter import ReportGenerator
 
 # 视频和MCP扩展
 from .video_utils import (
@@ -28,6 +29,8 @@ from .video_utils import (
     pick_evenly,
     get_video_info,
     check_ffmpeg_available,
+    compress_video_to_fit,
+    compress_image_to_bytes,
 )
 from .mcp_client import (
     MiniMaxMCPClient,
@@ -46,14 +49,18 @@ __all__ = [
     # 核心配置和工具
     "settings",
     "resolve_video_url",
+    "resolve_template_path",
+    "build_video_part",
     "check_dependencies",
     
     # 核心业务模块
     "MaterialLabeler",
     "QuotaExhaustedError",
+    "PayloadTooLargeError",
     "MaterialArchiver",
     "MaterialDownloader",
     "CacheExporter",
+    "ReportGenerator",
     
     # 视频处理
 
@@ -61,6 +68,8 @@ __all__ = [
     "pick_evenly",
     "get_video_info",
     "check_ffmpeg_available",
+    "compress_video_to_fit",
+    "compress_image_to_bytes",
     
     # MCP协议支持
     "MiniMaxMCPClient",
