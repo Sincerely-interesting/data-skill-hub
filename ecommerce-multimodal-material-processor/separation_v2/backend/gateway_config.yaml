@@ -1,0 +1,24 @@
+# 后端网关配置（服务端打标）
+# 说明：真实密钥不写在此文件，运行时由同目录 .env 自动注入（overlay）。
+# 此文件只放"部署参数"与"严格限制"。
+
+# 管理口令：/admin/issue、/admin/revoke 需要。部署时改成强口令。
+admin_secret: "wbAdmin9kP2qLm7zX4vR8tN3cF6"
+
+# 公网地址：部署后填你 1M 服务器的公网 IP:端口，会回传给客户填进薄壳 GATEWAY_BASE_URL。
+public_base_url: "http://119.91.111.63:8080"
+
+# 凭证默认配额
+credentials:
+  default_max_batches: 2        # 每凭证可发起的批量打标次数（label / batch 均计数）
+
+# 严格限制（服务端强制；薄壳只是透传，无法绕过）
+limits:
+  max_image_size_mb: 50.0      # 单张图片上限（MB）
+  max_video_size_mb: 500.0     # 单个视频上限（MB）
+  allowed_image_types: ".jpg,.jpeg,.png,.webp,.gif"
+  allowed_video_types: ".mp4,.mov,.avi,.mkv"
+  max_units_per_batch: 200       # 单次批量单元数上限（图片组 + 视频段合计）
+  max_uploads_per_credential: 1000  # 单凭证累计上传文件数上限（防存储滥用）
+  # 一组图片上限三态：null=无上限 / 0=禁止图片 / 正整数=上限张数
+  max_images_per_group: null

@@ -1,0 +1,25 @@
+# 后端服务端依赖（你侧 1M 机安装）
+# 网关框架
+fastapi>=0.95
+uvicorn>=0.27
+pyyaml>=6.0
+httpx>=0.27
+python-multipart>=0.0.20
+
+# 自研打标引擎依赖（engine/ 需要）
+pydantic>=2.0
+pydantic-settings>=2.0
+python-dotenv>=1.0
+loguru>=0.7
+tqdm>=4.66
+Pillow>=10.0
+pandas>=2.0
+openpyxl>=3.1
+xlrd>=2.0
+reportlab>=4.0
+matplotlib>=3.8
+
+# 视频处理（视频直传压缩依赖 ffmpeg 外部程序，非 pip 包）
+# opencv 可选：若 engine/video_utils 用 cv2 抽取帧再传，则安装；
+# 当前 minicpm_base64 形态为整段视频 base64 内联（不抽帧），可不装。
+# opencv-python>=4.9

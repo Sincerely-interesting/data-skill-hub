@@ -44,6 +44,8 @@ from reportlab.platypus import (
 from reportlab.platypus.doctemplate import PageTemplate, BaseDocTemplate
 from reportlab.platypus.frames import Frame
 
+# ──────────────────── 中文字体注册 ────────────────────
+
 import os
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 try:

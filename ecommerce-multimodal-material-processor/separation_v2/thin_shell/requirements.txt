@@ -1,0 +1,2 @@
+# 薄壳客户端：纯标准库实现，无需 pip install。
+# 仅需 Python 3.8+（urllib / argparse / json / mimetypes 均为标准库）。

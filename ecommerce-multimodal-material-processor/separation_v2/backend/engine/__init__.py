@@ -1,0 +1,82 @@
+﻿"""
+电商多模态素材处理引擎 (E-commerce Multimodal Material Processor)
+
+独立可运行的企业级素材处理流水线：
+- 素材获取（本地目录/Excel下载）
+- 视觉AI打标（8种Provider，含MCP协议）
+- 分镜头归档报告生成
+- 视频直接传输（不抽帧）与多模态处理
+- 缓存断点续传
+- Excel导出
+"""
+
+__version__ = "1.1.0"
+__author__ = "E-commerce Material Processing Team"
+
+# 核心模块
+from .config import settings, resolve_video_url, resolve_template_path, build_video_part
+from .deps_checker import check_dependencies
+from .labeler import MaterialLabeler, QuotaExhaustedError, PayloadTooLargeError
+from .archiver import MaterialArchiver
+from .downloader import MaterialDownloader
+from .exporter import CacheExporter
+from .reporter import ReportGenerator
+
+# 视频和MCP扩展
+from .video_utils import (
+    VideoProcessor,
+    extract_video_frames,
+    pick_evenly,
+    get_video_info,
+    check_ffmpeg_available,
+    compress_video_to_fit,
+    compress_image_to_bytes,
+)
+from .mcp_client import (
+    MiniMaxMCPClient,
+    VideoAudioExtractor,
+    WhisperTranscriber,
+    MultimodalMaterialProcessor,
+)
+
+# API服务（开发中，可选实现，需要fastapi等依赖；CLI 不依赖此模块，导入期不实例化）
+api_app = None
+
+__all__ = [
+    # 版本信息
+    "__version__",
+    
+    # 核心配置和工具
+    "settings",
+    "resolve_video_url",
+    "resolve_template_path",
+    "build_video_part",
+    "check_dependencies",
+    
+    # 核心业务模块
+    "MaterialLabeler",
+    "QuotaExhaustedError",
+    "PayloadTooLargeError",
+    "MaterialArchiver",
+    "MaterialDownloader",
+    "CacheExporter",
+    "ReportGenerator",
+    
+    # 视频处理
+
+    "extract_video_frames",
+    "pick_evenly",
+    "get_video_info",
+    "check_ffmpeg_available",
+    "compress_video_to_fit",
+    "compress_image_to_bytes",
+    
+    # MCP协议支持
+    "MiniMaxMCPClient",
+    "VideoAudioExtractor",
+    "WhisperTranscriber",
+    "MultimodalMaterialProcessor",
+    
+    # API服务
+    "api_app",
+]

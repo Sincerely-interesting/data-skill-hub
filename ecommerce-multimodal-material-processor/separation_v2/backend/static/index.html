@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>电商多模态打标网关</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+           background:#0f1115; color:#e6e6e6; margin:0; padding:40px; }
+    .card { max-width:760px; margin:0 auto; background:#1a1d24; border:1px solid #2a2e38;
+            border-radius:12px; padding:28px; }
+    h1 { font-size:22px; margin:0 0 8px; }
+    .mode { display:inline-block; background:#1f6feb33; color:#6cb4ff; padding:4px 10px;
+            border-radius:6px; font-size:13px; margin-bottom:16px; }
+    code { background:#0c0e12; padding:2px 6px; border-radius:4px; color:#9ad; }
+    ul { line-height:1.9; padding-left:20px; }
+    .ok { color:#4ade80; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>电商多模态打标网关</h1>
+    <div class="mode">服务端打标 · 密钥/提示词/引擎不出服务端</div>
+    <p>本服务持有模型密钥，执行自研打标引擎；客户侧仅持薄壳（纯接口层），
+       通过凭证调用以下接口：</p>
+    <ul>
+      <li><code>POST /api/v1/validate</code> — 凭证鉴权与配额查询</li>
+      <li><code>POST /api/v1/upload</code> — 上传素材（服务端强制类型/大小限制）</li>
+      <li><code>POST /api/v1/label</code> — 服务端执行单单元打标</li>
+      <li><code>POST /api/v1/batch</code> — 服务端执行批量打标（配额闸门）</li>
+      <li><code>POST /api/v1/report</code> — 使用回执</li>
+    </ul>
+    <p class="ok">✓ 打标在计算发生在服务端，客户薄壳不含任何 VLM 调用 / 提示词 / 引擎代码。</p>
+  </div>
+</body>
+</html>
