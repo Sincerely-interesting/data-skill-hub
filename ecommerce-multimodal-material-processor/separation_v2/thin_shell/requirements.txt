@@ -1,2 +1,6 @@
-# 薄壳客户端：纯标准库实现，无需 pip install。
-# 仅需 Python 3.8+（urllib / argparse / json / mimetypes 均为标准库）。
+# 核心（鉴权/打包/上传/落地 JSON）：纯标准库实现，无需 pip install。
+# 仅需 Python 3.8+（urllib / argparse / json / zipfile / hmac / hashlib / subprocess 均为标准库）。
+
+# 可选：仅当需要本地生成 PDF 分析报告（reporter.py）时安装。
+# 未安装时 batch 只落地 labeling_result.json，跳过 PDF，不影响打标。
+reportlab>=4.0

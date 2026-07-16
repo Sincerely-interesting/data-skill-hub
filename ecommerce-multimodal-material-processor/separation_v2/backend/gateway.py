@@ -4,16 +4,22 @@
 后端网关 + 自研打标服务（服务端打标，密钥/提示词/高价值资产不出服务端）
 
 设计要点（对应需求）：
-  - 薄壳（客户侧）只做"对话与引用"：鉴权、上传素材、发起打标请求、取回结果。
+  - 薄壳（客户侧）只做"对话与引用"：鉴权、本地打包素材、预检后单次上传压缩包、取回结果。
   - 打标逻辑全部在服务端执行：本网关直接调用自研引擎 engine.labeler.MaterialLabeler，
     客户薄壳里**没有任何** VLM 调用、提示词或引擎代码。
-  - 严格限制全部在服务端强制（类型 / 大小 / 单元数 / 批量次数 / 一组图片上限三态）。
+  - 素材以压缩包（zip + manifest 签名）单次上传；服务端在接收前 precheck 合规，
+    接收后复核签名与逐文件 sha256，再逐单元打标。
+  - 严格限制全部在服务端强制（类型 / 单文件大小 / 单元数 / 批量次数 / 压缩包总大小 / 一组图片上限三态）。
 """
 import sys
 import os
 import json
 import uuid
 import asyncio
+import hmac
+import hashlib
+import tempfile
+import zipfile
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -63,6 +69,10 @@ ALLOWED_IMAGE = set(LIMITS.get("allowed_image_types", ".jpg,.jpeg,.png,.webp,.gi
 ALLOWED_VIDEO = set(LIMITS.get("allowed_video_types", ".mp4,.mov,.avi,.mkv").lower().split(","))
 MAX_UNITS_PER_BATCH = int(LIMITS.get("max_units_per_batch", 200))
 MAX_UPLOADS_PER_CRED = int(LIMITS.get("max_uploads_per_credential", 1000))
+# 压缩包（单请求上传）总大小上限（MB）。同时修 1Panel/nginx 的 client_max_body_size
+MAX_PACKAGE_SIZE_MB = float(LIMITS.get("max_package_size_mb", 1024))
+# 分块上传的块大小（字节）。客户端按此切块，单块独立重试，规避 1M 慢链路整体超时。
+CHUNK_SIZE = int(LIMITS.get("chunk_size_bytes", 2_000_000))
 
 # 一组图片上限三态：None=无上限 / 0=禁止图片 / 正整数=上限张数
 _mipg = LIMITS.get("max_images_per_group", None)
@@ -91,6 +101,45 @@ STATE = load_state()
 
 UPLOADS = ROOT / "uploads"
 UPLOADS.mkdir(exist_ok=True)
+
+# 分块上传的暂存目录（按 upload_token 分桶）
+PARTS_DIR = UPLOADS / ".parts"
+
+# 压缩包上传令牌（precheck 签发，upload 消费）。内存态即可。
+PACKAGE_TOKENS = {}  # token -> {"cred":..,"expires":ts,"used":bool}
+
+
+def _manifest_sig(key: str, m: dict) -> str:
+    """对 manifest 做 HMAC-SHA256（自动剔除 signature 字段，幂等）。"""
+    m2 = {k: v for k, v in m.items() if k != "signature"}
+    body = json.dumps(m2, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hmac.new(key.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _issue_pkg_token(cred: str) -> str:
+    t = uuid.uuid4().hex
+    PACKAGE_TOKENS[t] = {
+        "cred": cred,
+        "expires": datetime.now(timezone.utc).timestamp() + 600,
+        "used": False,
+    }
+    return t
+
+
+def _pkg_token_ok(t: str):
+    r = PACKAGE_TOKENS.get(t)
+    if not r or r["used"]:
+        return None
+    if datetime.now(timezone.utc).timestamp() > r["expires"]:
+        return None
+    return r
+
+
+def _safe_unit_id(uid: str) -> bool:
+    """防止压缩包内单元路径遍历。"""
+    if not uid or "/" in uid or "\\" in uid or uid.startswith("."):
+        return False
+    return True
 
 # ---------------- 引擎单例 ----------------
 _labeler = None
@@ -176,50 +225,6 @@ def validate(body: dict):
     }
 
 
-@app.post("/api/v1/upload")
-async def upload(credential: str = Form(...), unit_id: str = Form(...), file: UploadFile = File(...)):
-    c = _cred_ok(credential)
-    if not c:
-        raise HTTPException(status_code=401, detail={"reason": "invalid_credential"})
-
-    # 严格限制（服务端强制）：类型 + 大小 + 单凭证上传数
-    ext = Path(file.filename).suffix.lower()
-    is_img = ext in ALLOWED_IMAGE
-    is_vid = ext in ALLOWED_VIDEO
-    if not (is_img or is_vid):
-        raise HTTPException(
-            status_code=400,
-            detail={"reason": "unsupported_type", "ext": ext,
-                    "allowed": sorted(ALLOWED_IMAGE | ALLOWED_VIDEO)},
-        )
-    data = await file.read()
-    size_mb = len(data) / (1024 * 1024)
-    if is_img and size_mb > MAX_IMAGE_SIZE_MB:
-        raise HTTPException(status_code=413, detail={
-            "reason": "image_too_large", "size_mb": round(size_mb, 1), "max_mb": MAX_IMAGE_SIZE_MB})
-    if is_vid and size_mb > MAX_VIDEO_SIZE_MB:
-        raise HTTPException(status_code=413, detail={
-            "reason": "video_too_large", "size_mb": round(size_mb, 1), "max_mb": MAX_VIDEO_SIZE_MB})
-    if c.get("uploads", 0) >= MAX_UPLOADS_PER_CRED:
-        raise HTTPException(status_code=402, detail={
-            "reason": "upload_quota_exceeded", "max": MAX_UPLOADS_PER_CRED})
-
-    # 存盘：uploads/{unit_id}/{filename}（防路径遍历，仅取文件名）
-    udir = UPLOADS / unit_id
-    udir.mkdir(parents=True, exist_ok=True)
-    safe_name = Path(file.filename).name
-    (udir / safe_name).write_bytes(data)
-
-    c["uploads"] = c.get("uploads", 0) + 1
-    save_state(STATE)
-    return {
-        "unit_id": unit_id,
-        "file": safe_name,
-        "media_type": "image" if is_img else "video",
-        "size_mb": round(size_mb, 2),
-    }
-
-
 async def _label_unit(unit_id: str):
     """服务端执行单个单元的打标（调用自研引擎）。返回 (ok, payload)。"""
     udir = UPLOADS / unit_id
@@ -239,57 +244,6 @@ async def _label_unit(unit_id: str):
         return False, {"unit_id": unit_id, "error": str(e)[:300]}
 
 
-@app.post("/api/v1/label")
-async def label(body: dict):
-    cred = body.get("credential")
-    c = _cred_ok(cred)
-    if not c:
-        raise HTTPException(status_code=401, detail={"reason": "invalid_credential"})
-    if c["batches_used"] >= c["max_batches"]:
-        raise HTTPException(status_code=402, detail={
-            "reason": "quota_exceeded", "max_batches": c["max_batches"], "used": c["batches_used"]})
-    unit_id = body.get("unit_id")
-    ok, payload = await _label_unit(unit_id)
-    if not ok and "unit_not_found" in payload.get("error", ""):
-        raise HTTPException(status_code=400, detail=payload)
-    if not ok and payload.get("error") == "images_forbidden":
-        raise HTTPException(status_code=400, detail=payload)
-    c["batches_used"] += 1
-    save_state(STATE)
-    payload["batches_left"] = c["max_batches"] - c["batches_used"]
-    return payload
-
-
-@app.post("/api/v1/batch")
-async def batch(body: dict):
-    cred = body.get("credential")
-    c = _cred_ok(cred)
-    if not c:
-        raise HTTPException(status_code=401, detail={"reason": "invalid_credential"})
-    units = body.get("units") or []
-    if not units:
-        raise HTTPException(status_code=400, detail={"reason": "empty_batch"})
-    if len(units) > MAX_UNITS_PER_BATCH:
-        raise HTTPException(status_code=400, detail={
-            "reason": "too_many_units", "got": len(units), "max": MAX_UNITS_PER_BATCH})
-    if c["batches_used"] >= c["max_batches"]:
-        raise HTTPException(status_code=402, detail={
-            "reason": "quota_exceeded", "max_batches": c["max_batches"], "used": c["batches_used"]})
-
-    results = []
-    for uid in units:
-        ok, payload = await _label_unit(uid)
-        results.append(payload)
-
-    c["batches_used"] += 1
-    save_state(STATE)
-    return {
-        "units": len(units),
-        "results": results,
-        "batches_left": c["max_batches"] - c["batches_used"],
-    }
-
-
 @app.post("/api/v1/report")
 def report(body: dict):
     cred = body.get("credential")
@@ -304,6 +258,193 @@ def report(body: dict):
         "uploads": c.get("uploads", 0),
         "status": "ok",
     }
+
+
+# ---------------- 压缩包协议（先验证合规，再接收） ----------------
+# 客户端把整批素材打成 zip（含 manifest.json），本地预检后：
+#   1) 先 POST manifest 到 /package/precheck（服务端在接收大包前先查合规）
+#   2) 通过则拿到 upload_token，再单次上传 zip 到 /package/upload
+# 压缩包内含可验证信息：manifest 的 HMAC 签名 + 每文件 sha256。
+PKG_FORMAT = "ecom-tag-pkg/1"
+
+
+@app.post("/api/v1/package/precheck")
+async def package_precheck(body: dict):
+    cred = body.get("credential")
+    c = _cred_ok(cred)
+    if not c:
+        raise HTTPException(status_code=401, detail={"reason": "invalid_credential"})
+    m = body.get("manifest") or {}
+    if m.get("format") != PKG_FORMAT:
+        raise HTTPException(status_code=400, detail={
+            "reason": "unsupported_format", "got": m.get("format")})
+    uc = int(m.get("unit_count", 0))
+    if uc > MAX_UNITS_PER_BATCH:
+        raise HTTPException(status_code=400, detail={
+            "reason": "too_many_units", "got": uc, "max": MAX_UNITS_PER_BATCH})
+    tb = int(m.get("total_bytes", 0))
+    if tb > MAX_PACKAGE_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail={
+            "reason": "package_too_large", "got_mb": round(tb / 1048576, 1),
+            "max_mb": MAX_PACKAGE_SIZE_MB})
+    if c["batches_used"] >= c["max_batches"]:
+        raise HTTPException(status_code=402, detail={
+            "reason": "quota_exceeded", "max_batches": c["max_batches"], "used": c["batches_used"]})
+    if _manifest_sig(cred, m) != m.get("signature"):
+        raise HTTPException(status_code=400, detail={"reason": "signature_invalid"})
+    token = _issue_pkg_token(cred)
+    return {
+        "accept": True,
+        "upload_token": token,
+        "max_bytes": int(MAX_PACKAGE_SIZE_MB * 1024 * 1024),
+        "ttl": 600,
+        "supports_chunks": True,
+        "chunk_size": CHUNK_SIZE,
+    }
+
+
+async def _process_package_bytes(data: bytes, rt: dict) -> dict:
+    """接收后复核（深度防御）+ 解包 + 逐文件 sha256/类型校验 + 逐单元打标。
+    单次上传、分块 commit 两条路径共用此逻辑。返回与 /package/upload 一致的响应体。"""
+    tmp = UPLOADS / ("pkg_%s.zip" % uuid.uuid4().hex[:8])
+    tmp.write_bytes(data)
+    try:
+        # ---- 接收后复核（深度防御）----
+        try:
+            z = zipfile.ZipFile(tmp)
+        except Exception:
+            raise HTTPException(status_code=400, detail={"reason": "zip_invalid"})
+        if z.testzip() is not None:
+            raise HTTPException(status_code=400, detail={"reason": "zip_corrupt"})
+        names = z.namelist()
+        if "manifest.json" not in names:
+            raise HTTPException(status_code=400, detail={"reason": "missing_manifest"})
+        m = json.loads(z.read("manifest.json").decode("utf-8"))
+        if _manifest_sig(rt["cred"], m) != m.get("signature"):
+            raise HTTPException(status_code=400, detail={"reason": "signature_invalid"})
+        if len(m.get("units", [])) > MAX_UNITS_PER_BATCH:
+            raise HTTPException(status_code=400, detail={
+                "reason": "too_many_units", "got": len(m.get("units", [])),
+                "max": MAX_UNITS_PER_BATCH})
+        # ---- 解包 + 逐文件校验 sha256 + 类型，落盘到 uploads/{unit_id} ----
+        done = []
+        for u in m["units"]:
+            uid = u["unit_id"]
+            if not _safe_unit_id(uid):
+                raise HTTPException(status_code=400, detail={"reason": "bad_unit_id", "unit": uid})
+            udir = UPLOADS / uid
+            udir.mkdir(parents=True, exist_ok=True)
+            manifest_files = {f["name"]: f for f in u["files"]}
+            for zname in names:
+                if not zname.startswith(uid + "/"):
+                    continue
+                fname = zname[len(uid) + 1:]
+                if not fname or fname not in manifest_files:
+                    raise HTTPException(status_code=400, detail={"reason": "unexpected_file", "file": zname})
+                content = z.read(zname)
+                if hashlib.sha256(content).hexdigest() != manifest_files[fname]["sha256"]:
+                    raise HTTPException(status_code=400, detail={"reason": "file_hash_mismatch", "file": zname})
+                ext = Path(fname).suffix.lower()
+                if ext not in (ALLOWED_IMAGE | ALLOWED_VIDEO):
+                    raise HTTPException(status_code=400, detail={"reason": "unsupported_type", "ext": ext})
+                # 单文件大小上限（服务端强制，让"大小上限"在压缩包路径也生效）
+                sz = manifest_files[fname]["bytes"]
+                if ext in ALLOWED_IMAGE and sz > MAX_IMAGE_SIZE_MB * 1048576:
+                    raise HTTPException(status_code=413, detail={
+                        "reason": "image_too_large", "size_mb": round(sz / 1048576, 1), "max_mb": MAX_IMAGE_SIZE_MB})
+                if ext in ALLOWED_VIDEO and sz > MAX_VIDEO_SIZE_MB * 1048576:
+                    raise HTTPException(status_code=413, detail={
+                        "reason": "video_too_large", "size_mb": round(sz / 1048576, 1), "max_mb": MAX_VIDEO_SIZE_MB})
+                (udir / fname).write_bytes(content)
+            done.append(uid)
+        # ---- 逐单元打标（复用既有服务端引擎）----
+        results = []
+        for uid in done:
+            ok, payload = await _label_unit(uid)
+            results.append(payload)
+        rt["used"] = True
+        c = _cred_ok(rt["cred"])
+        c["batches_used"] += 1
+        c["uploads"] = c.get("uploads", 0) + sum(len(u["files"]) for u in m["units"])
+        save_state(STATE)
+        return {
+            "units": len(done),
+            "results": results,
+            "batches_left": c["max_batches"] - c["batches_used"],
+        }
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+
+
+@app.post("/api/v1/package/upload")
+async def package_upload(token: str = Form(...), file: UploadFile = File(...)):
+    """单次上传（小包 / 不支持分块的旧客户端兜底）。"""
+    rt = _pkg_token_ok(token)
+    if not rt:
+        raise HTTPException(status_code=401, detail={"reason": "invalid_or_expired_token"})
+    data = await file.read()
+    return await _process_package_bytes(data, rt)
+
+
+@app.post("/api/v1/package/chunk")
+async def package_chunk(token: str = Form(...), index: int = Form(...),
+                        file: UploadFile = File(...)):
+    """接收分块（第 index 块，0-based）。按 token 暂存，幂等可重传（断点续传）。"""
+    rt = _pkg_token_ok(token)
+    if not rt:
+        raise HTTPException(status_code=401, detail={"reason": "invalid_or_expired_token"})
+    if index < 0 or index > 1_000_000:
+        raise HTTPException(status_code=400, detail={"reason": "bad_chunk_index"})
+    data = await file.read()
+    part_dir = PARTS_DIR / token
+    part_dir.mkdir(parents=True, exist_ok=True)
+    (part_dir / ("%08d.part" % index)).write_bytes(data)
+    total = sum(p.stat().st_size for p in part_dir.iterdir() if p.name.endswith(".part"))
+    return {"ok": True, "index": index, "bytes": len(data), "received": total,
+            "chunks": len([p for p in part_dir.iterdir() if p.name.endswith(".part")])}
+
+
+@app.get("/api/v1/package/status")
+def package_status(token: str):
+    """查询已收到的分块（断点续传用）。"""
+    rt = _pkg_token_ok(token)
+    if not rt:
+        raise HTTPException(status_code=401, detail={"reason": "invalid_or_expired_token"})
+    part_dir = PARTS_DIR / token
+    if not part_dir.exists():
+        return {"received": 0, "chunks": 0, "indices": []}
+    idx = sorted(int(p.name[:8]) for p in part_dir.iterdir() if p.name.endswith(".part"))
+    total = sum(p.stat().st_size for p in part_dir.iterdir() if p.name.endswith(".part"))
+    return {"received": total, "chunks": len(idx), "indices": idx}
+
+
+@app.post("/api/v1/package/commit")
+async def package_commit(body: dict):
+    """全部分块到齐后提交：校验整包 sha256 -> 重组 -> 解包打标。"""
+    token = body.get("token")
+    rt = _pkg_token_ok(token)
+    if not rt:
+        raise HTTPException(status_code=401, detail={"reason": "invalid_or_expired_token"})
+    package_sha256 = body.get("package_sha256", "")
+    part_dir = PARTS_DIR / token
+    parts = sorted(part_dir.iterdir(), key=lambda p: int(p.name[:8])) if part_dir.exists() else []
+    if not parts:
+        raise HTTPException(status_code=400, detail={"reason": "no_chunks"})
+    buf = b"".join(p.read_bytes() for p in parts)
+    if hashlib.sha256(buf).hexdigest() != package_sha256:
+        raise HTTPException(status_code=400, detail={"reason": "package_hash_mismatch"})
+    try:
+        return await _process_package_bytes(buf, rt)
+    finally:
+        try:
+            for p in parts:
+                p.unlink()
+            part_dir.rmdir()
+        except Exception:
+            pass
 
 
 # ---------------- 启动 ----------------

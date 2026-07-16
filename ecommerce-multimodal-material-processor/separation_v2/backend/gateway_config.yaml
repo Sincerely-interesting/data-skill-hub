@@ -20,5 +20,7 @@ limits:
   allowed_video_types: ".mp4,.mov,.avi,.mkv"
   max_units_per_batch: 200       # 单次批量单元数上限（图片组 + 视频段合计）
   max_uploads_per_credential: 1000  # 单凭证累计上传文件数上限（防存储滥用）
+  max_package_size_mb: 1024      # 压缩包（分块累计）总大小上限；同时必须调大 1Panel/nginx 的 client_max_body_size
+  chunk_size_bytes: 2000000      # 分块上传的单块大小（字节，默认 2MB）；客户端按此切块，单块独立重试断点续传
   # 一组图片上限三态：null=无上限 / 0=禁止图片 / 正整数=上限张数
   max_images_per_group: null
