@@ -69,8 +69,8 @@ MAX_PACKAGE_SIZE_MB = float(ENV.get("MAX_PACKAGE_SIZE_MB", "0") or 0)
 CHUNK_RETRY = int(ENV.get("CHUNK_RETRY", "5") or 5)
 CHUNK_BACKOFF = float(ENV.get("CHUNK_BACKOFF", "1.5") or 1.5)
 # commit 阶段服务端要重组整包 + 逐单元打标，大包（数十单元/含视频）耗时可达数分钟，
-# 故 commit 超时默认 1800s（可用环境变量覆盖），远大于普通请求的 120s。
-COMMIT_TIMEOUT = int(ENV.get("COMMIT_TIMEOUT", "1800") or 1800)
+# 故 commit 超时默认 7200s（2小时，可用环境变量覆盖），远大于普通请求的 120s。
+COMMIT_TIMEOUT = int(ENV.get("COMMIT_TIMEOUT", "7200") or 7200)
 
 
 def _unwrap_detail(b):

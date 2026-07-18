@@ -5,8 +5,8 @@
 # 管理口令：/admin/issue、/admin/revoke 需要。部署时改成强口令。
 admin_secret: "wbAdmin9kP2qLm7zX4vR8tN3cF6"
 
-# 公网地址：部署后填你 1M 服务器的公网 IP:端口，会回传给客户填进薄壳 GATEWAY_BASE_URL。
-public_base_url: "http://119.91.111.63:8080"
+# 公网地址：会回传给客户填进薄壳 GATEWAY_BASE_URL
+public_base_url: "http://106.55.231.215:8080"
 
 # 凭证默认配额
 credentials:
