@@ -45,15 +45,6 @@ from engine.config import settings
 
 app = FastAPI(title="电商多模态打标网关(服务端打标)", version="2.0")
 
-# 跨域：允许前端静态页（不同源）JS 调用公开签发接口 /api/v1/issue。
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ALLOWED_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ---------------- 配置 ----------------
 CONFIG_PATH = ROOT / "gateway_config.yaml"
 
@@ -98,6 +89,16 @@ PUBLIC_ISSUE_PER_IP_LIMIT = int(CONFIG.get("credentials", {}).get("public_issue_
 # 跨域（CORS）：前端静态页（Cloudflare Pages）JS 跨域调用公开签发接口所需。
 # 配置文件 cors_allowed_origins 可限制来源；缺省 ["*"]（公开接口本就无口令，可接受）。
 CORS_ALLOWED_ORIGINS = CONFIG.get("cors_allowed_origins", ["*"])
+
+# 跨域：允许前端静态页（不同源）JS 调用公开签发接口 /api/v1/issue。
+# 必须在 CORS_ALLOWED_ORIGINS 定义之后注册，否则启动即 NameError。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------------- 状态持久化 ----------------
 STATE_PATH = ROOT / "gateway_state.json"
