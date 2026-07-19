@@ -12,9 +12,19 @@ public_base_url: "https://sincerelytuner.cloud:8080"
 # 相对路径按 backend 目录解析；留空则默认 backend/skill.zip。把 skill.zip 放到该路径即可。
 skill_zip_path: "skill.zip"
 
+# 跨域来源（CORS）：前端静态页（Cloudflare Pages，域名不同源）JS 调用公开签发接口 /api/v1/issue 所需。
+# 删掉此行或留空 = 允许所有来源（公开接口本就无口令，可接受）；要收紧则填具体来源列表，例如：
+# cors_allowed_origins:
+#   - "https://www.sincerelytuner.cloud"
+#   - "http://localhost:3000"
+cors_allowed_origins: ["*"]
+
 # 凭证默认配额
 credentials:
   default_max_batches: 2        # 每凭证可发起的批量打标次数（label / batch 均计数）
+  default_valid_days: 3         # 新签发 token 的可用天数（公开接口与 admin 接口一致生效；0 或不填=不限制）
+  public_issue_daily_limit: 30  # 公开接口 /api/v1/issue 每日全局签发上限（防刷；0 或不填=默认 30）
+  public_issue_per_ip_limit: 3  # 公开接口每 IP 每日签发上限（防单 IP 刷光全局配额；0 或不填=默认 3）
 
 # 严格限制（服务端强制；薄壳只是透传，无法绕过）
 limits:

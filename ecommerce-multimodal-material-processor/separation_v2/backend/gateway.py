@@ -21,7 +21,7 @@ import hashlib
 import tempfile
 import zipfile
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 ROOT = Path(__file__).resolve().parent
 # 使 `import engine` 可用（自研引擎仅存在于服务端）
@@ -35,7 +35,8 @@ except Exception:
     pass
 
 import yaml
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 
 # 1) 引入自研打标引擎（仅服务端，客户薄壳不含此代码）
@@ -43,6 +44,15 @@ from engine.labeler import MaterialLabeler, normalize_label, STD_LABELS
 from engine.config import settings
 
 app = FastAPI(title="电商多模态打标网关(服务端打标)", version="2.0")
+
+# 跨域：允许前端静态页（不同源）JS 调用公开签发接口 /api/v1/issue。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------------- 配置 ----------------
 CONFIG_PATH = ROOT / "gateway_config.yaml"
@@ -79,6 +89,15 @@ _mipg = LIMITS.get("max_images_per_group", None)
 MAX_IMAGES_PER_GROUP = None if _mipg in (None, "", "null", "None") else int(_mipg)
 
 DEFAULT_MAX_BATCHES = int(CONFIG.get("credentials", {}).get("default_max_batches", 2))
+# 新签发 token 的可用天数（公开接口与 admin 接口一致生效；配置文件可控制）。
+DEFAULT_VALID_DAYS = int(CONFIG.get("credentials", {}).get("default_valid_days", 3))
+# 公开签发接口：每日全局上限（无口令，防止被刷）。配置文件可控制。
+PUBLIC_ISSUE_DAILY_LIMIT = int(CONFIG.get("credentials", {}).get("public_issue_daily_limit", 30))
+# 公开签发接口：每 IP 每日上限（防单 IP 刷光全局配额）。
+PUBLIC_ISSUE_PER_IP_LIMIT = int(CONFIG.get("credentials", {}).get("public_issue_per_ip_limit", 3))
+# 跨域（CORS）：前端静态页（Cloudflare Pages）JS 跨域调用公开签发接口所需。
+# 配置文件 cors_allowed_origins 可限制来源；缺省 ["*"]（公开接口本就无口令，可接受）。
+CORS_ALLOWED_ORIGINS = CONFIG.get("cors_allowed_origins", ["*"])
 
 # ---------------- 状态持久化 ----------------
 STATE_PATH = ROOT / "gateway_state.json"
@@ -155,10 +174,17 @@ def get_labeler():
 
 # ---------------- 公共辅助 ----------------
 def _cred_ok(cred):
-    """返回凭证记录；无效/已吊销返回 None"""
+    """返回凭证记录；无效/已吊销/已过期返回 None"""
     c = STATE["credentials"].get(cred)
     if not c or c.get("revoked"):
         return None
+    exp = c.get("expires_at")
+    if exp:
+        try:
+            if datetime.fromisoformat(exp) < datetime.now(timezone.utc):
+                return None  # 已超过可用天数
+        except Exception:
+            pass
     return c
 
 
@@ -170,6 +196,70 @@ def _apply_image_limit():
         settings.max_images = 99999
     else:
         settings.max_images = MAX_IMAGES_PER_GROUP
+
+
+# ---------------- 公开签发每日限流（全局 30/天 + 每 IP 3/天） ----------------
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _client_ip(request: Request) -> str:
+    """取真实客户端 IP：优先 X-Forwarded-For（走代理/Cloudflare 时），否则取直连 peer。"""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _public_issue_state() -> dict:
+    """返回今天的签发计数结构；非今天则重置（count=全局, by_ip=每 IP）。"""
+    today = _today_utc()
+    d = STATE.get("public_issue_daily") or {}
+    if d.get("date") != today:
+        d = {"date": today, "count": 0, "by_ip": {}}
+    return d
+
+
+def _public_issue_count_today() -> int:
+    return int(_public_issue_state().get("count", 0))
+
+
+def _public_issue_count_ip(ip: str) -> int:
+    return int(_public_issue_state().get("by_ip", {}).get(ip, 0))
+
+
+def _inc_public_issue(ip: str):
+    d = _public_issue_state()
+    d["count"] = int(d.get("count", 0)) + 1
+    by_ip = d.setdefault("by_ip", {})
+    by_ip[ip] = int(by_ip.get(ip, 0)) + 1
+    STATE["public_issue_daily"] = d
+
+
+def _issue_credential(customer: str, max_batches: int, valid_days: int) -> dict:
+    """签发一个 token（admin 与公开接口共用）。返回给调用方的字段。"""
+    cred = "sk_" + uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    # valid_days<=0 视为不限制（向后兼容旧 admin token）
+    expires_at = (now + timedelta(days=valid_days)).isoformat() if valid_days and valid_days > 0 else None
+    STATE["credentials"][cred] = {
+        "customer": customer,
+        "max_batches": max_batches,
+        "batches_used": 0,
+        "uploads": 0,
+        "issued_at": now.isoformat(),
+        "revoked": False,
+        "valid_days": valid_days,
+        "expires_at": expires_at,
+    }
+    save_state(STATE)
+    return {
+        "credential": cred,
+        "max_batches": max_batches,
+        "customer": customer,
+        "valid_days": valid_days,
+        "expires_at": expires_at,
+    }
 
 
 # ---------------- 接口 ----------------
@@ -205,17 +295,8 @@ def admin_issue(body: dict, admin_secret: str = Header(None)):
         raise HTTPException(status_code=401, detail={"reason": "admin_unauthorized"})
     cust = body.get("customer", "anon")
     max_b = int(body.get("max_batches", DEFAULT_MAX_BATCHES))
-    cred = "sk_" + uuid.uuid4().hex
-    STATE["credentials"][cred] = {
-        "customer": cust,
-        "max_batches": max_b,
-        "batches_used": 0,
-        "uploads": 0,
-        "issued_at": datetime.now(timezone.utc).isoformat(),
-        "revoked": False,
-    }
-    save_state(STATE)
-    return {"credential": cred, "max_batches": max_b, "customer": cust}
+    valid_days = int(body.get("valid_days", DEFAULT_VALID_DAYS))
+    return _issue_credential(cust, max_b, valid_days)
 
 
 @app.post("/admin/revoke")
@@ -231,6 +312,22 @@ def admin_revoke(body: dict, admin_secret: str = Header(None)):
     return {"revoked": True, "credential": cred}
 
 
+@app.post("/api/v1/issue")
+def public_issue(request: Request, body: dict = None):
+    """公开签发 token：无口令。
+    双层限流：① 每日全局上限 PUBLIC_ISSUE_DAILY_LIMIT（默认 30）；② 每 IP 每日上限 PUBLIC_ISSUE_PER_IP_LIMIT（默认 3）。
+    customer / max_batches / valid_days 全部锁死走服务端配置，客户端不可覆盖。"""
+    ip = _client_ip(request)
+    if _public_issue_count_today() >= PUBLIC_ISSUE_DAILY_LIMIT:
+        raise HTTPException(status_code=429, detail={
+            "reason": "daily_limit_exceeded", "scope": "global", "limit": PUBLIC_ISSUE_DAILY_LIMIT})
+    if _public_issue_count_ip(ip) >= PUBLIC_ISSUE_PER_IP_LIMIT:
+        raise HTTPException(status_code=429, detail={
+            "reason": "daily_limit_exceeded", "scope": "ip", "limit": PUBLIC_ISSUE_PER_IP_LIMIT})
+    _inc_public_issue(ip)
+    return _issue_credential("public", DEFAULT_MAX_BATCHES, DEFAULT_VALID_DAYS)
+
+
 @app.post("/api/v1/validate")
 def validate(body: dict):
     cred = body.get("credential")
@@ -243,6 +340,8 @@ def validate(body: dict):
         "batches_used": c["batches_used"],
         "batches_left": c["max_batches"] - c["batches_used"],
         "uploads": c.get("uploads", 0),
+        "valid_days": c.get("valid_days"),
+        "expires_at": c.get("expires_at"),
     }
 
 
