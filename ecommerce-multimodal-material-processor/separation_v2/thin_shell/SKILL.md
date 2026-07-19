@@ -13,7 +13,7 @@ description: 电商素材 8 类标签打标的**纯接口层**客户端。所有
 复制 `.env.example` 为 `.env`，只填：
 
 ```
-GATEWAY_BASE_URL=http://106.55.231.215:8080
+GATEWAY_BASE_URL=https://sincerelytuner.cloud:8080
 CREDENTIAL=sk_服务商下发的token
 ```
 

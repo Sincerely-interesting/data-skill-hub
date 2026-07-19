@@ -6,7 +6,7 @@
 admin_secret: "wbAdmin9kP2qLm7zX4vR8tN3cF6"
 
 # 公网地址：会回传给客户填进薄壳 GATEWAY_BASE_URL
-public_base_url: "http://106.55.231.215:8080"
+public_base_url: "https://sincerelytuner.cloud:8080"
 
 # 凭证默认配额
 credentials:

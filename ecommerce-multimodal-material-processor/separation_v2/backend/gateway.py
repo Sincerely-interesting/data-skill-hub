@@ -449,5 +449,8 @@ async def package_commit(body: dict):
 
 # ---------------- 启动 ----------------
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    import uvicorn, os
+    cert = os.getenv("SSL_CERTFILE", "/证书/fullchain.pem")
+    key = os.getenv("SSL_KEYFILE", "/证书/privkey.pem")
+    uvicorn.run(app, host="0.0.0.0", port=8080,
+                ssl_certfile=cert, ssl_keyfile=key)

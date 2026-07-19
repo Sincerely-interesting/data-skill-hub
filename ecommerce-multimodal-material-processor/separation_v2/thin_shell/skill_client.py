@@ -561,9 +561,30 @@ def cmd_batch(args):
     print(json.dumps(out, ensure_ascii=False))
 
 
+def _ensure_reportlab():
+    """确保 reportlab 可用：已装直接返回；否则尝试自动 pip 安装一次，失败返回 False。
+    受环境变量 AUTO_INSTALL_DEPS（默认 1）控制，设为 0 可关闭自动安装。"""
+    try:
+        import reportlab  # noqa: F401
+        return True
+    except Exception:
+        pass
+    if os.environ.get("AUTO_INSTALL_DEPS", "1") == "0":
+        return False
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "reportlab"],
+                       capture_output=True, text=True, timeout=300)
+        import reportlab  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
 def _make_pdf(cache_json: Path, pdf_out: Path):
     """调用同目录 reporter.py 生成 PDF；返回 (ok, message)。
-    PDF 是可选辅助，reportlab 未安装或脚本缺失时优雅跳过，不影响打标。"""
+    PDF 是可选辅助：reportlab 缺失时自动尝试安装，装不上则优雅跳过，不影响打标。"""
+    if not _ensure_reportlab():
+        return False, "未安装 reportlab 且自动安装失败，已跳过 PDF（手动 pip install reportlab 后重跑即可）"
     reporter = Path(__file__).resolve().parent / "reporter.py"
     if not reporter.exists():
         return False, "reporter.py 不存在（PDF 辅助脚本未随包分发）"
