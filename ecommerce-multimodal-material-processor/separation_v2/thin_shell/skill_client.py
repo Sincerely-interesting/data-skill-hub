@@ -64,6 +64,8 @@ COMPRESS_BUDGET_MB = float(ENV.get("COMPRESS_BUDGET_MB", "0") or 0)
 FFMPEG_PATH = ENV.get("FFMPEG_PATH", "") or "ffmpeg"
 # 压缩包本地预检上限（MB）；0 = 不限制。服务端另有强制上限。
 MAX_PACKAGE_SIZE_MB = float(ENV.get("MAX_PACKAGE_SIZE_MB", "0") or 0)
+# 单元数上限（与服务端 MAX_UNITS_PER_BATCH 对齐；仅客户端预检提示，服务端为权威强制方）。
+MAX_UNITS_PER_BATCH = int(ENV.get("MAX_UNITS_PER_BATCH", "200") or 200)
 # 分块上传参数（应对 1M 慢链路整体超时被反代 RST）：
 #   单块重试次数 + 指数退避基数（秒）。服务端 precheck 返回 chunk_size 为准。
 CHUNK_RETRY = int(ENV.get("CHUNK_RETRY", "5") or 5)
@@ -279,9 +281,13 @@ def _package_precheck_local(pkg, manifest):
     if MAX_PACKAGE_SIZE_MB and size_mb > MAX_PACKAGE_SIZE_MB:
         die("package_too_large_client", action="continue_error",
              message="压缩包 %.1fMB 超过客户端上限 %.1fMB" % (size_mb, MAX_PACKAGE_SIZE_MB))
-    if manifest["unit_count"] > 200:
-        die("too_many_units_client", action="continue_error",
-             message="单元数 %d 超过 200" % manifest["unit_count"])
+    if manifest["unit_count"] > MAX_UNITS_PER_BATCH:
+        die("too_many_units", action="continue_error",
+            message=("素材单元数 %d 已超过规定上限 %d。后端不会接收执行（单包最多 %d 个单元）。"
+                     "建议：把素材按子文件夹拆分为多个 ≤%d 单元的批次，分别运行 batch --dir 打标；"
+                     "或仅对其中一部分文件夹打标。"
+                     % (manifest["unit_count"], MAX_UNITS_PER_BATCH,
+                        MAX_UNITS_PER_BATCH, MAX_UNITS_PER_BATCH)))
     if _sig(CREDENTIAL, manifest) != manifest.get("signature"):
         die("signature_invalid_client", action="continue_error", message="manifest 签名不符")
     return True
@@ -488,6 +494,15 @@ def cmd_batch(args):
             die("drive_unconfirmed", action="continue_error", message="客户未确认工作盘")
     if not getattr(args, "out_dir", None):
         args.out_dir = str(out_dir)
+    # 友好预检：单元数超限时尽早提示（避免先把超大目录整体打包才发现被后端拒绝）
+    _early_units = _discover_units(Path(args.dir).resolve())
+    if len(_early_units) > MAX_UNITS_PER_BATCH:
+        die("too_many_units", action="continue_error",
+            message=("素材单元数 %d 已超过规定上限 %d。后端不会接收执行（单包最多 %d 个单元）。"
+                     "建议：把素材按子文件夹拆分为多个 ≤%d 单元的批次，分别运行 batch --dir 打标；"
+                     "或仅对其中一部分文件夹打标。"
+                     % (len(_early_units), MAX_UNITS_PER_BATCH,
+                        MAX_UNITS_PER_BATCH, MAX_UNITS_PER_BATCH)))
     pkg, manifest = _build_package(args.dir)
     _package_precheck_local(pkg, manifest)
     # 1) 服务端在接收大包前先查合规
@@ -496,6 +511,11 @@ def cmd_batch(args):
     if code == 401:
         die("invalid_credential")
     if code != 200:
+        if body.get("reason") == "quota_exceeded":
+            die("quota_exceeded", action="continue_error",
+                message=("当前 Token 的打标额度已用完（已用 %s / 上限 %s），后端拒绝接收。"
+                         "请重新申请试用 Token，或用新的 Token 重试。"
+                         % (body.get("used"), body.get("max_batches"))))
         die(body.get("reason", "precheck_failed"), action="continue_error",
             message=str(body)[:300])
     token = body.get("upload_token")
@@ -521,6 +541,11 @@ def cmd_batch(args):
     if code2 == 401:
         die("invalid_credential")
     if code2 in (400, 402, 413):
+        if resp.get("reason") == "quota_exceeded":
+            die("quota_exceeded", action="continue_error",
+                message=("当前 Token 的打标额度已用完（已用 %s / 上限 %s），后端拒绝接收。"
+                         "请重新申请试用 Token，或用新的 Token 重试。"
+                         % (resp.get("used"), resp.get("max_batches"))))
         die(resp.get("reason", "package_upload_failed"), action="continue_error",
             message=str(resp)[:300])
     if code2 != 200:
