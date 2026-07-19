@@ -36,7 +36,7 @@ except Exception:
 
 import yaml
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 # 1) 引入自研打标引擎（仅服务端，客户薄壳不含此代码）
 from engine.labeler import MaterialLabeler, normalize_label, STD_LABELS
@@ -176,6 +176,27 @@ def _apply_image_limit():
 @app.get("/health")
 def health():
     return {"status": "ok", "public_base_url": PUBLIC_BASE_URL, "mode": "server_side_labeling"}
+
+
+# 技能包下载：对外提供 skill.zip 下载（前端"下载 Skill"按钮指向此接口）。
+# 文件路径可在 gateway_config.yaml 用 skill_zip_path 配置；相对路径按 backend 目录解析，默认 backend/skill.zip。
+def _resolve_skill_zip_path() -> Path:
+    p = Path(CONFIG.get("skill_zip_path") or "skill.zip")
+    if not p.is_absolute():
+        p = (ROOT / p).resolve()
+    return p
+
+
+@app.get("/api/v1/skill/download")
+def skill_download():
+    path = _resolve_skill_zip_path()
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail={"reason": "skill_zip_not_found"})
+    return FileResponse(
+        path=str(path),
+        media_type="application/zip",
+        filename="skill.zip",
+    )
 
 
 @app.post("/admin/issue")

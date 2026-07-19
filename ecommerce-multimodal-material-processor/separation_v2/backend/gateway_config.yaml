@@ -8,6 +8,10 @@ admin_secret: "wbAdmin9kP2qLm7zX4vR8tN3cF6"
 # 公网地址：会回传给客户填进薄壳 GATEWAY_BASE_URL
 public_base_url: "https://sincerelytuner.cloud:8080"
 
+# 技能包下载文件：GET /api/v1/skill/download 会返回该文件（下载名固定为 skill.zip）。
+# 相对路径按 backend 目录解析；留空则默认 backend/skill.zip。把 skill.zip 放到该路径即可。
+skill_zip_path: "skill.zip"
+
 # 凭证默认配额
 credentials:
   default_max_batches: 2        # 每凭证可发起的批量打标次数（label / batch 均计数）
