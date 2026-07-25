@@ -74,6 +74,26 @@ CHUNK_BACKOFF = float(ENV.get("CHUNK_BACKOFF", "1.5") or 1.5)
 # 故 commit 超时默认 7200s（2小时，可用环境变量覆盖），远大于普通请求的 120s。
 COMMIT_TIMEOUT = int(ENV.get("COMMIT_TIMEOUT", "7200") or 7200)
 
+# ---------------- 后端接口路径（唯一事实源，镜像 backend/gateway.py 的路由定义） ----------------
+# 说明：本客户端所有请求路径统一在此集中维护，与后端 gateway.py 的 @app.post/@app.get
+#       路由一一对应；后端若调整路径，只需改这里一处。功能不变，仅消除散落的硬编码字面量。
+#       （对齐 gateway.py 行号：validate@332, report@368, precheck@392, upload@503,
+#         chunk@513, status@531, commit@545）
+API_PATHS = {
+    "validate":         "/api/v1/validate",          # 鉴权/校验凭证
+    "report":           "/api/v1/report",            # 取回配额回执
+    "package_precheck": "/api/v1/package/precheck",  # 服务端合规预检 + 下发 upload_token
+    "package_upload":   "/api/v1/package/upload",    # 旧服务端单次整包上传（兜底）
+    "package_chunk":    "/api/v1/package/chunk",     # 分块上传单块
+    "package_status":   "/api/v1/package/status",    # 断点续传：查询已收块
+    "package_commit":   "/api/v1/package/commit",    # 全部块到齐后提交重组打标
+}
+
+
+def _api_url(base, key):
+    """拼接后端接口完整 URL。base=GATEWAY_BASE_URL；key=API_PATHS 键名。"""
+    return base.rstrip("/") + API_PATHS[key]
+
 
 def _unwrap_detail(b):
     """FastAPI 的 HTTPException(detail={...}) 会被包成 {"detail": {...}}。
@@ -173,7 +193,7 @@ def _upload_in_chunks(base, token, data, chunk_size):
     nchunks = (total + chunk_size - 1) // chunk_size
     pkg_sha = hashlib.sha256(data).hexdigest()
     # 1) 断点续传：查服务端已收到哪些块
-    st, sc = _get_json(base + "/api/v1/package/status?token=" + urllib.parse.quote(token))
+    st, sc = _get_json(_api_url(base, "package_status") + "?token=" + urllib.parse.quote(token))
     have = set(st.get("indices", [])) if sc == 200 else set()
     # 2) 逐块上传，跳过已收，失败指数退避重试
     for i in range(nchunks):
@@ -183,7 +203,7 @@ def _upload_in_chunks(base, token, data, chunk_size):
         last_err = None
         for attempt in range(CHUNK_RETRY):
             resp, code = _mpost(
-                base + "/api/v1/package/chunk",
+                _api_url(base, "package_chunk"),
                 {"token": token, "index": i},
                 [{"name": "file", "filename": "chunk_%d.bin" % i,
                   "data": piece, "mime": "application/octet-stream"}],
@@ -204,7 +224,7 @@ def _upload_in_chunks(base, token, data, chunk_size):
     # 3) 全部块到齐 -> commit（服务端校验整包 sha256 后重组打标）
     #    大包（数十单元、含视频）服务端重组+打标可达数分钟，commit 必须用长超时，
     #    否则 120s 就断连导致整批静默失败（小包几秒可过、故早期冒烟测不出）。
-    return _post_json(base + "/api/v1/package/commit",
+    return _post_json(_api_url(base, "package_commit"),
                       {"token": token, "package_sha256": pkg_sha},
                       timeout=COMMIT_TIMEOUT)
 
@@ -446,7 +466,7 @@ def cmd_auth(args):
         die("no_gateway", message="未配置 GATEWAY_BASE_URL")
     if not CREDENTIAL:
         die("no_credential", message="未配置 CREDENTIAL")
-    body, code = _post_json(GATEWAY_BASE_URL.rstrip("/") + "/api/v1/validate",
+    body, code = _post_json(_api_url(GATEWAY_BASE_URL, "validate"),
                               {"credential": CREDENTIAL})
     if code == 401:
         die("invalid_credential", message=str(body.get("reason", "")))
@@ -506,7 +526,7 @@ def cmd_batch(args):
     pkg, manifest = _build_package(args.dir)
     _package_precheck_local(pkg, manifest)
     # 1) 服务端在接收大包前先查合规
-    body, code = _post_json(GATEWAY_BASE_URL.rstrip("/") + "/api/v1/package/precheck",
+    body, code = _post_json(_api_url(GATEWAY_BASE_URL, "package_precheck"),
                              {"credential": CREDENTIAL, "manifest": manifest})
     if code == 401:
         die("invalid_credential")
@@ -529,7 +549,7 @@ def cmd_batch(args):
         resp, code2 = _upload_in_chunks(base, token, data, chunk_size)
     else:
         # 旧服务端兜底：单次上传
-        resp, code2 = _mpost(base + "/api/v1/package/upload",
+        resp, code2 = _mpost(_api_url(base, "package_upload"),
                              {"token": token},
                              [{"name": "file", "filename": pkg.name,
                                "data": data, "mime": "application/zip"}],
@@ -653,7 +673,7 @@ def cmd_report(args):
         die("no_gateway", message="未配置 GATEWAY_BASE_URL")
     if not CREDENTIAL:
         die("no_credential", message="未配置 CREDENTIAL")
-    body, code = _post_json(GATEWAY_BASE_URL.rstrip("/") + "/api/v1/report",
+    body, code = _post_json(_api_url(GATEWAY_BASE_URL, "report"),
                               {"credential": CREDENTIAL})
     if code == 401:
         die("invalid_credential")
