@@ -18,7 +18,7 @@ from loguru import logger
 import httpx
 from tqdm import tqdm
 
-from .config import settings, resolve_video_url, build_video_part
+from .config import settings, resolve_video_url, build_video_part, resolve_grounding_path
 
 
 class QuotaExhaustedError(Exception):
@@ -42,6 +42,24 @@ STD_LABELS = [
     "明星穿搭", "穿搭精选(核心)", "穿搭精选(次要)",
     "单品展示(上脚)", "创意静物", "静物展示", "性能测试", "其他",
 ]
+
+# ===== 部署校验：构建版本标记 + 调试日志落盘 =====
+# 该常量随每次后端改动递增。服务器启动时若打印出此 build 且 planA=True，
+# 即证明部署的是含「方案A 反提标签 + 否定修复 + doc_base 相对路径」的最新包。
+LABELER_BUILD = "planA-v3-negfix-docbase-20260726"
+
+# 额外把 DEBUG 级日志写到 backend/labeler_debug.log，便于部署后抓取核对。
+try:
+    _debug_log_path = Path(__file__).resolve().parent.parent / "labeler_debug.log"
+    logger.add(str(_debug_log_path), level="DEBUG", rotation="5 MB",
+               format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+except Exception:
+    pass
+
+logger.info(
+    f"[LABELER_BUILD] build={LABELER_BUILD} planA=True planA_negfix=True doc_base=True "
+    f"<- 若此行出现在服务器启动日志中，证明方案A代码已加载"
+)
 
 
 def normalize_label(raw) -> str:
@@ -71,6 +89,104 @@ def normalize_label(raw) -> str:
     if "性能测试" in s:
         return "性能测试"
     return "其他"
+
+
+# 英文/拼音标签别名 -> 标准中文标签（模型偶用英文标签，如 single_display）
+_EN_LABEL_ALIASES = {
+    "single_display": "单品展示(上脚)",
+    "single": "单品展示(上脚)",
+    "upfoot": "单品展示(上脚)",
+    "onfoot": "单品展示(上脚)",
+    "star": "明星穿搭",
+    "starcel": "明星穿搭",
+    "star_wear": "明星穿搭",
+    "celebrity": "明星穿搭",
+    "creative": "创意静物",
+    "creative_still": "创意静物",
+    "still": "静物展示",
+    "still_life": "静物展示",
+    "outfit": "穿搭精选(核心)",
+    "outfit_core": "穿搭精选(核心)",
+    "outfit_main": "穿搭精选(核心)",
+    "performance": "性能测试",
+    "perf": "性能测试",
+    "other": "其他",
+}
+
+
+def _extract_final_label(reasoning: str):
+    """从 reasoning 强制提取最终标准标签（A+B 注入后模型 label 字段不可靠时兜底）。
+
+    做法：扫描 reasoning 中所有「标准标签关键词」的出现位置，排除紧邻否定词的命中，
+    取**位置最靠后**的肯定命中（模型通常把真正结论放在判定路径末尾，
+    如「判定为…／故归…／→ 最终标签」）。返回 8 类标准标签之一或 None。
+    """
+    if not reasoning or not isinstance(reasoning, str):
+        return None
+    s = reasoning
+    # 紧邻否定词：标签前 6 字内出现即否定（覆盖"非穿搭""不归入穿搭""无穿搭"等）
+    _NEG_CLOSE = ("非", "不", "未", "无", "排除", "不是", "并非", "并未", "没有")
+    # 宽否定词：标签前 15 字内出现、且其间无分号则否定（覆盖"非A或B""不属于…或…"）
+    _NEG_WIDE = ("非", "不属于", "未出现", "未", "并未")
+    _NEG_SUFFIX = ("不适用", "不满足", "不归入", "排除", "不是")
+    # (标准标签, [候选关键词…]) —— 顺序无关，最终取最靠后的肯定命中
+    _TERMS = [
+        ("性能测试", ["性能测试", "防水测试", "耐磨测试", "性能"]),
+        ("创意静物", ["创意静物", "艺术化", "艺术感", "创意"]),
+        ("静物展示", ["静物展示", "纯静物", "平铺", "摆拍"]),
+        ("单品展示(上脚)", ["单品展示(上脚)", "单品展示上脚", "单品上脚",
+                           "single_display", "single", "upfoot", "onfoot",
+                           "上脚", "上脚展示", "脚穿", "脚部", "鞋子穿", "单品展示"]),
+        ("明星穿搭", ["明星穿搭", "知名人物", "公众人物", "名人", "celebrity", "明星"]),
+        ("穿搭精选(核心)", ["穿搭精选(核心)", "穿搭精选核心", "全身穿搭",
+                           "完整穿搭", "outfit", "穿搭核心", "穿搭精选"]),
+        ("穿搭精选(次要)", ["穿搭精选(次要)", "穿搭次要", "半身穿搭", "穿搭展示", "穿搭精选次要"]),
+    ]
+    hits = []
+    for std, terms in _TERMS:
+        for t in terms:
+            idx = 0
+            while True:
+                p = s.find(t, idx)
+                if p < 0:
+                    break
+                pre6 = s[max(0, p - 6):p]
+                pre15 = s[max(0, p - 15):p]
+                after4 = s[p + len(t):p + len(t) + 4]
+                neg = False
+                if any(w in pre6 for w in _NEG_CLOSE):
+                    neg = True
+                else:
+                    for w in _NEG_WIDE:
+                        q = s.rfind(w, max(0, p - 15), p)
+                        if q != -1:
+                            seg = s[q:p]
+                            if "；" not in seg and ";" not in seg and "，" not in seg and "," not in seg:
+                                neg = True
+                                break
+                    if not neg and any(w in after4 for w in _NEG_SUFFIX):
+                        neg = True
+                if not neg:
+                    hits.append((std, p))
+                idx = p + len(t)
+    if not hits:
+        return None
+    # 取最靠后的肯定命中
+    hits.sort(key=lambda x: x[1])
+    return hits[-1][0]
+
+
+def _to_std_label(cand):
+    """把 reasoning 提取出的标签候选归一化到 8 类标准标签。"""
+    if not cand:
+        return None
+    key = cand.strip().lower().replace(" ", "")
+    if key in _EN_LABEL_ALIASES:
+        return _EN_LABEL_ALIASES[key]
+    # 含上脚/单品展示 优先（红线：上脚优先于穿搭）
+    if "单品展示" in cand or "上脚" in cand:
+        return "单品展示(上脚)"
+    return normalize_label(cand)
 
 
 def _repair_and_parse_json(text: str):
@@ -305,6 +421,32 @@ class MaterialLabeler:
         self._cache: Dict[str, Any] = {}
         self._load_cache()
 
+        # 标注标准/示例注入：启动时加载一次并缓存（默认开 labeling-criteria，
+        # examples 默认关——demo-conversation 是对话示例、非分类 few-shot，批处理易引入噪声）。
+        self._main_prompt_text: str = ""
+        self._grounding_text: str = ""
+        self._fewshot_text: str = ""
+        try:
+            mp = resolve_grounding_path(settings.label_prompt_path)
+            self._main_prompt_text = mp.read_text(encoding="utf-8")
+            logger.info(f"已载入主分类 prompt: {mp.name}（{len(self._main_prompt_text)} 字符）")
+        except Exception as e:
+            logger.warning(f"主分类 prompt 读取失败（{e}），将使用内置兜底 prompt")
+        if settings.grounding_enabled:
+            try:
+                gp = resolve_grounding_path(settings.label_criteria_path)
+                self._grounding_text = gp.read_text(encoding="utf-8")
+                logger.info(f"已载入标注标准文档: {gp.name}（{len(self._grounding_text)} 字符）")
+            except Exception as e:
+                logger.warning(f"标注标准文档读取失败（{e}），分类将不使用外部标准注入")
+        if settings.fewshot_examples_enabled:
+            try:
+                ep = resolve_grounding_path(settings.examples_path)
+                self._fewshot_text = ep.read_text(encoding="utf-8")
+                logger.info(f"已载入示例文档: {ep.name}（{len(self._fewshot_text)} 字符）")
+            except Exception as e:
+                logger.warning(f"示例文档读取失败（{e}），将不注入示例")
+
     def _load_provider_config(self) -> None:
         """加载当前 Provider 的配置
 
@@ -459,6 +601,9 @@ class MaterialLabeler:
                         )
                     else:
                         img_bytes = img_path.read_bytes()
+                    if not img_bytes:
+                        logger.warning(f"  图片为空/无法读取，跳过: {img_path}")
+                        continue
                     image_data = base64.standard_b64encode(img_bytes).decode("utf-8")
                     content_parts.append({
                         "type": "image_url",
@@ -661,6 +806,40 @@ class MaterialLabeler:
             self._save_cache()
             return result
 
+        # ---- 异常素材检测：空字节 / 无法解码的文件直接跳过打标，标记"其他" ----
+        # 避免把坏字节发给 VLM 端点触发 400，也避免无效重试卡死整批。
+        from PIL import Image, UnidentifiedImageError
+        bad_files = []
+        for f in list(images) + list(videos):
+            try:
+                if f.stat().st_size == 0:
+                    bad_files.append(f.name)
+                    continue
+            except OSError:
+                bad_files.append(f.name)
+                continue
+            if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+                try:
+                    with Image.open(f) as im:
+                        im.verify()
+                except Exception:
+                    bad_files.append(f.name)
+        if bad_files:
+            note = '内有' + '、'.join(f'"{n}"' for n in bad_files[:10]) + '等素材出现问题无法解析！'
+            logger.warning(f"  素材异常(跳过打标): {material_id} -> {note}")
+            result = {
+                "material_id": material_id,
+                "label": "其他",
+                "confidence": 0.0,
+                "error": "素材异常",
+                "reasoning": note,
+                "abnormal": True,
+                "timestamp": datetime.now().isoformat(),
+            }
+            self._cache[material_id] = result
+            self._save_cache()
+            return result
+
         logger.debug(" 开始输入验证...")
 
         validated_images = validate_media_files(
@@ -709,48 +888,25 @@ class MaterialLabeler:
             return result
 
         try:
-            prompt = """你是一个严谨的电商素材分类专家。请根据素材画面内容，判断其属于哪一类标签。
+            # 主分类 prompt 从外部文件注入（拒绝硬编码），见 config.label_prompt_path
+            prompt = self._main_prompt_text or (
+                "你是一个严谨的电商素材分类专家。请根据素材画面内容，判断其属于哪一类标签。"
+            )
 
-【8个标准标签（互斥，每个素材只能归唯一一类）】
-1. 明星穿搭 - 画面含可识别的知名明星/公众人物（必须有人物，且为名人）
-2. 穿搭精选(核心) - 必须有人物全身出镜，头部+躯干+脚部均可见，展示整体穿搭
-3. 穿搭精选(次要) - 必须有人物半身出镜，头部+躯干可见、脚部不可见，展示上身穿搭
-4. 单品展示(上脚) - 无人物头部/躯干：仅商品本身+脚部局部（膝盖以下/上脚特写/鞋盒摆拍/商品单独摆放），即使出现脚部也不算"穿搭"
-5. 创意静物 - 无人物，商品置于艺术置景/AI渲染/风格化场景（背景有设计感、非纯色纯底）
-6. 静物展示 - 无人物，商品在纯色底/平铺/自然光无艺术处理
-7. 性能测试 - 视频素材：连续运动帧+科技点/功能讲解
-8. 其他 - 不属于以上任何分类
-
-【逐级判别顺序（必须按此顺序判断，命中即停，不可跳步）】
-第一步：是否为视频且含连续运动帧+科技讲解？→ 是=性能测试；否=继续。
-第二步：画面是否有人物头部/躯干出镜？
-  - 有人物且为可识别名人 → 明星穿搭
-  - 有人物且全身（头+躯干+脚均可见）→ 穿搭精选(核心)
-  - 有人物且半身（头+躯干可见、脚不可见）→ 穿搭精选(次要)
-  - 无人物的头部/躯干 → 进入第三步
-第三步：画面是否为商品本身+脚部局部（上脚/鞋盒/单独摆放）？
-  - 是 → 单品展示(上脚)
-  - 否（纯商品、无脚部）→ 判背景：有艺术置景/风格化=创意静物；纯底/平铺=静物展示；都不像=其他
-
-【互斥红线（违反任意一条即判错）】
-- 红线1（单品↔穿搭）：只要看不到人物头部/躯干，哪怕出现脚部/上脚，也只能是"单品展示(上脚)"，绝不许归为穿搭精选。穿搭精选必须有真实人物。
-- 红线2（单品↔静物）：单品展示优先于静物类。上脚/鞋盒/单独摆放的商品，无论背景是否艺术化，都归"单品展示(上脚)"，不归创意静物或静物展示。
-- 红线3（创意↔平铺）：创意静物与静物展示只差"背景是否艺术化"，与是否上脚无关。背景有设计感/渲染=创意静物；纯色底/平铺=静物展示。
-- 红线4（标签↔理由一致性·最重要）：label 字段必须与 reasoning 中"判定路径"的结论标签完全一致，矛盾即判错。
-  · reasoning 写"无人物/单品/上脚/鞋盒/单独摆放" → label 只能是 单品展示(上脚)，绝不可是 穿搭精选(次要)/穿搭精选(核心)/其他。
-  · reasoning 写"全身/头躯脚俱全/完整人物" → label 只能是 穿搭精选(核心) 或 穿搭精选(次要)，绝不可是 单品展示(上脚)。
-
-【输出要求（label 与 reasoning 强制自洽）】
-1) reasoning 先写"判定路径"（如"无人物→仅脚部+商品→单品展示(上脚)"）；
-2) 该判定路径的【最后一跳结论标签】即你唯一允许填入 label 的值，二者必须完全相同；
-3) ⚠️ 典型错误（严禁）：reasoning 已写"无人物/单品/上脚"，label 却填 穿搭精选(次要) 或 穿搭精选(核心)——这是错的，应填 单品展示(上脚)。
-仅输出一行纯JSON（不要解释、不要Markdown代码块、用英文双引号）：
-{
-  "label": "判定路径结论标签（与 reasoning 严格一致，8类之一）",
-  "confidence": 0.0-1.0,
-  "reasoning": "判定路径：...；画面关键特征：..."
-}
-"""
+            # 注入标注标准详细依据与示例（启动时已加载缓存），直接拼接到主 prompt 末尾
+            _inject = ""
+            if self._grounding_text:
+                _inject += (
+                    "\n\n【标注标准详细依据（务必严格遵循，与上方 8 类判定规则一致）】\n"
+                    + self._grounding_text
+                )
+            if self._fewshot_text:
+                _inject += (
+                    "\n\n【参考示例（仅作格式/口径参考，不要当作分类对象）】\n"
+                    + self._fewshot_text
+                )
+            if _inject:
+                prompt = prompt + _inject
 
             response_text = await self._call_api_with_retry(
                 messages=[{"role": "user", "content": prompt}],
@@ -782,18 +938,38 @@ class MaterialLabeler:
             if ok:
                 # 理由-标签一致性兜底（防串台，精准度优先）：
                 # 当归一化标签与理由关键词强矛盾时，以理由描述的画面特征为准纠正。
-                _raw_label = normalize_label(parsed.get("label", "其他"))
+                # 优先从 reasoning 的"判定路径/符合XXX定义/归XXX"反提最终标签：
+                # A+B 长文档注入后模型常在 label 字段填错（如统一'其他'），
+                # 但 reasoning 的判定路径结论正确，以 reasoning 为准。
+                _extracted = _extract_final_label(parsed.get("reasoning", ""))
+                _raw_label = _to_std_label(_extracted) or normalize_label(parsed.get("label", "其他"))
                 _reason_lc = (parsed.get("reasoning") or "").lower()
                 _label = _raw_label
-                if _raw_label in ("穿搭精选(核心)", "穿搭精选(次要)"):
-                    if any(k in _reason_lc for k in ("无人物", "单品", "上脚", "仅脚部", "膝盖以下", "鞋盒", "商品本身", "无上身", "无模", "单独摆放")):
-                        _label = "单品展示(上脚)"
-                elif _raw_label == "单品展示(上脚)":
-                    if any(k in _reason_lc for k in ("全身", "头部+躯干+脚部", "头+躯干+脚", "完整人物", "上半身出镜", "半身图", "半身")):
-                        _label = "穿搭精选(核心)" if ("全身" in _reason_lc or "头部+躯干+脚部" in _reason_lc) else "穿搭精选(次要)"
+                # 一致性纠正块：仅当方案A反提失败（reasoning 无可提取标签）时才作为兜底。
+                # 一旦方案A成功反提出标签（已做否定感知 + 取最后肯定命中），直接信任它，
+                # 不再用粗粒度关键词二次纠正——否则会把"非全身穿搭"误翻成穿搭核心（上一版 bug）。
+                if _extracted is None:
+                    if _raw_label in ("穿搭精选(核心)", "穿搭精选(次要)"):
+                        if any(k in _reason_lc for k in ("无人物", "单品", "上脚", "仅脚部", "膝盖以下", "鞋盒", "商品本身", "无上身", "无模", "单独摆放")):
+                            _label = "单品展示(上脚)"
+                    elif _raw_label == "单品展示(上脚)":
+                        # 仅当 reasoning 以"正面"方式确认全身/完整人物时才翻回穿搭类；
+                        # 必须排除"非全身/无全身/无头部/无躯干"等否定或局部表述。
+                        _pos_full = ("全身穿搭", "完整人物", "头部+躯干+脚部", "头+躯干+脚", "完整穿搭", "全身出镜")
+                        _neg_full = ("非全身", "无全身", "不是全身", "未全身", "非完整人物", "无头部", "无躯干", "无上半身", "非全身穿搭")
+                        if any(p in _reason_lc for p in _pos_full) and not any(n in _reason_lc for n in _neg_full):
+                            _label = "穿搭精选(核心)" if ("全身穿搭" in _reason_lc or "头部+躯干+脚部" in _reason_lc or "完整人物" in _reason_lc) else "穿搭精选(次要)"
+                    elif _raw_label in ("创意静物", "静物展示"):
+                        if any(k in _reason_lc for k in ("上脚", "鞋盒", "单独摆放", "商品本身", "仅脚部", "膝盖以下")):
+                            _label = "单品展示(上脚)"
                 elif _raw_label in ("创意静物", "静物展示"):
                     if any(k in _reason_lc for k in ("上脚", "鞋盒", "单独摆放", "商品本身", "仅脚部", "膝盖以下")):
                         _label = "单品展示(上脚)"
+                # 部署校验日志：打印方案A反提路径，证明最终标签来自 reasoning 而非模型错填的 label 字段
+                logger.info(
+                    f"[PLAN_A] {material_id} | model_label={parsed.get('label')!r} "
+                    f"| extracted={_extracted!r} | raw_label={_raw_label!r} | final_label={_label!r}"
+                )
                 result = {
                     "material_id": material_id,
                     "label": _label,

@@ -96,32 +96,35 @@ if not _FONT_PATH:
 
 LABEL_ORDERS = [
     "穿搭精选(核心)",
+    "单品展示(上脚)",
     "性能测试",
     "静物展示",
     "明星穿搭",
     "创意静物",
-    "其他内容",
+    "其他",
     "穿搭精选(次要)",
 ]
 
 LABEL_COLORS = {
     "穿搭精选(核心)": "#27AE60",
+    "单品展示(上脚)": "#2980B9",
     "性能测试": "#E67E22",
     "静物展示": "#16A085",
     "明星穿搭": "#E74C3C",
     "创意静物": "#9B59B6",
-    "其他内容": "#95A5A6",
+    "其他": "#95A5A6",
     "穿搭精选(次要)": "#3498DB",
 }
 
 # 别名（短名称，用于表格和条形图显示）
 LABEL_ALIAS = {
     "穿搭精选(核心)": "穿搭精选",
+    "单品展示(上脚)": "单品上脚",
     "性能测试": "功能演示",
     "静物展示": "常规静物",
     "明星穿搭": "明星同款",
     "创意静物": "创意静物",
-    "其他内容": "其他",
+    "其他": "其他",
     "穿搭精选(次要)": "半身穿搭",
 }
 
@@ -733,7 +736,7 @@ class ReportGenerator:
         for order_name in LABEL_ORDERS:
             if order_name in s or s in order_name:
                 return order_name
-        return "其他内容"
+        return "其他"
 
     @staticmethod
     def _guess_type(info: dict) -> str:

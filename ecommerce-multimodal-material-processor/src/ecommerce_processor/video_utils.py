@@ -164,7 +164,7 @@ def compress_image_to_bytes(
         try:
             return image_path.read_bytes()
         except OSError:
-            return b""
+            return None
 
 
 def extract_video_frames(

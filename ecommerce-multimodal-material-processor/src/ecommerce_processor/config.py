@@ -64,7 +64,7 @@ class Settings(BaseSettings):
 
     # 五、重试机制
     max_retries: int = 5
-    retry_base_delay: int = 10
+    retry_base_delay: int = 3
     quota_wait_hours: int = 5
 
     # 六、输出目录
@@ -111,6 +111,29 @@ class Settings(BaseSettings):
     video_payload_format: str = "openai_compatible"
     template_path_full_dimension: str = "docs/ANALYSIS_TEMPLATE_FULL_DIMENSION.md"
     template_path_storyboard: str = "docs/STORYBOARD_TEMPLATE_STANDARD.md"
+
+    # 十一、标注标准/示例注入（让 AI 主动读取 references/examples，提升分类一致性）
+    #   grounding_enabled: 是否把"标注标准规范"注入分类 prompt（默认开）。
+    #   label_criteria_path: 标注标准文档（references/labeling-criteria.md），比 prompt 内的
+    #                        8 类简化说明更细，作为模型判定的"标尺"，直接对齐分类精度/漂移问题。
+    #   fewshot_examples_enabled: 是否注入示例文档（默认关；demo-conversation.md 是对话示例、
+    #                        非分类 few-shot，批处理注入易引入噪声，故默认关，需要时再开）。
+    #   examples_path: 示例文档路径。
+    #   路径均相对仓库根解析（与 resolve_template_path 同构）。
+    grounding_enabled: bool = True
+    #   label_prompt_path: 主分类 prompt（权威，从外部文件注入，拒绝硬编码）。
+    label_prompt_path: str = "prompts/label_prompt.txt"
+    label_criteria_path: str = "references/labeling-criteria.md"
+    fewshot_examples_enabled: bool = False
+    examples_path: str = "examples/demo-conversation.md"
+
+    # 十一·五、文档定位基准（模板 + 标注标准等所有相对文档的基准目录）
+    #   doc_base_enabled: 开关（默认开）。开=按 doc_base_dir 定位文档；关=按运行目录(cwd)定位。
+    #   doc_base_dir:     基准目录，相对 config.py 所在目录（Linux 相对路径，用 "/" 分隔）。
+    #     本文件在 src/ecommerce_processor/，代码用文档在同级 docs/、references/，故为 "."。
+    #   最终路径 = config.py目录 / doc_base_dir / (template_path_* 或 label_criteria_path 等)
+    doc_base_enabled: bool = True
+    doc_base_dir: str = "."
 
     # 十一、处理限制
     max_images: int = 10
@@ -293,11 +316,28 @@ _TEMPLATE_MAP = {
     "full_dimension": "template_path_full_dimension",
 }
 
+def _resolve_repo_file(rel_path: str) -> Path:
+    """把文档相对路径解析为绝对路径：基准目录 + rel_path。
+
+    基准目录由两个配置项控制（见 Settings.doc_base_enabled / doc_base_dir）：
+      - doc_base_enabled 开（默认）：基准 = config.py目录 / doc_base_dir
+      - doc_base_enabled 关：基准 = 运行目录 (cwd)
+    不再逐级向上查找。绝对 rel_path 直接返回。
+    """
+    rel = Path(rel_path)
+    if rel.is_absolute():
+        return rel.resolve()
+    if getattr(settings, "doc_base_enabled", True):
+        base = Path(__file__).resolve().parent / getattr(settings, "doc_base_dir", ".")
+    else:
+        base = Path.cwd()
+    return (base / rel).resolve()
+
+
 def resolve_template_path(name: str = None) -> Path:
     """根据配置（或显式名称）返回归档模板文件的绝对路径。
 
-    模板均为本地 ./docs/* 文件，相对路径以 *仓库根目录* 为基准解析
-    （本文件位于 src/ecommerce_processor/，向上三级即仓库根）。
+    模板均为本地 ./docs/* 文件，路径向上逐级查找（见 _resolve_repo_file）。
     """
     name = name or settings.archive_template
     key = _TEMPLATE_MAP.get(name)
@@ -305,11 +345,16 @@ def resolve_template_path(name: str = None) -> Path:
         raise ValueError(
             f"未知的归档模板: {name!r}（可选: storyboard / full_dimension）"
         )
-    p = Path(getattr(settings, key))
-    if not p.is_absolute():
-        repo_root = Path(__file__).resolve().parent.parent.parent
-        p = repo_root / p
-    return p.resolve()
+    return _resolve_repo_file(getattr(settings, key))
+
+
+def resolve_grounding_path(rel_path: str = None) -> Path:
+    """标注标准/示例文档路径解析（见 _resolve_repo_file）。
+
+    用于把 references/labeling-criteria.md、examples/demo-conversation.md 等
+    文档解析为绝对路径，供 labeler 注入分类 prompt。
+    """
+    return _resolve_repo_file(rel_path or settings.label_criteria_path)
 
 
 _settings_instance = None
