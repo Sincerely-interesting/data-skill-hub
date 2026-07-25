@@ -653,7 +653,7 @@ class ReportGenerator:
 
     # ────── ⑦ 全部明细表 ──────
 
-    def _build_detail_list(self, page_size: int = 35) -> list:
+    def _build_detail_list(self, page_size: int = 22) -> list:
         d = self._data
         sorted_items = sorted(
             d.items(), key=lambda x: x[1].get("confidence", 0), reverse=True,
@@ -681,7 +681,8 @@ class ReportGenerator:
                 mtype = self._guess_type(info)
                 mtype_short = "图" if mtype == "image" else "视"
                 conf = info.get("confidence", 0)
-                reason = (info.get("reasoning", "") or "")[:50]
+                # 放宽截断上限，配合更宽的"判定理由"列，尽量完整展示判定理由
+                reason = (info.get("reasoning", "") or "")[:200]
                 alias = LABEL_ALIAS.get(label, label)
 
                 rows.append([
@@ -694,15 +695,20 @@ class ReportGenerator:
                 ])
 
             usable = PAGE_W - 2 * MARGIN
-            fixed_cols = 28 + 82 + 22 + 110 + 38
-            cw = [28, 82, 22, 110, 38, usable - fixed_cols]
+            # 收窄前几列（尤其是过宽的"标签"列），把节省下来的宽度全部让给"判定理由"，
+            # 使其宽度接近"分类代表素材"表，从而完整显示判定理由文字。
+            cw_idx, cw_id, cw_type, cw_label, cw_conf = 24, 64, 20, 52, 34
+            fixed_cols = cw_idx + cw_id + cw_type + cw_label + cw_conf
+            cw = [cw_idx, cw_id, cw_type, cw_label, cw_conf, usable - fixed_cols]
             tbl = Table(rows, colWidths=cw)
             tbl.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), HexColor("#2C3E50")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), white),
                 ("ALIGN", (0, 0), (0, -1), "CENTER"),
                 ("ALIGN", (2, 0), (4, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                # 表头垂直居中；正文（含多行判定理由）顶端对齐，便于阅读长文本
+                ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
+                ("VALIGN", (0, 1), (-1, -1), "TOP"),
                 ("GRID", (0, 0), (-1, -1), 0.25, HexColor("#EEEEEE")),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), ["#FFFFFF", "#F8F9FC"]),
                 ("TOPPADDING", (0, 0), (-1, -1), 2),
@@ -722,7 +728,6 @@ class ReportGenerator:
             Spacer(1, 15),
             Paragraph("—" * 50, STYLES["body"]),
             Paragraph(f"报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", STYLES["body"]),
-            Paragraph(f"数据来源: {Path(__file__).parent.name}", STYLES["body"]),
         ]
 
     # ────── 辅助方法 ──────
