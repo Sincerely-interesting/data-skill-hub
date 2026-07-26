@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import sys
 import time as _time
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -734,10 +735,25 @@ class ReportGenerator:
 
     @staticmethod
     def _norm_label(raw: str) -> str:
-        """将原始标签归一化到 LABEL_ORDERS 中的标准名。"""
-        s = raw.strip()
+        """标签已由后端 normalize_label 标准化为 8 类标准值之一。
+
+        薄壳客户端原样信任后端结果，仅做最轻量的卫生处理以兼容跨平台
+        (Windows/macOS) 可能带入的不可见字符 / 行尾 / 全角括号差异；
+        不再做脆弱的二次归一化（旧版会因 BOM/零宽空格等精确匹配失败而
+        把大量正确标签误归为「其他」）。
+        """
+        if not raw or not isinstance(raw, str):
+            return "其他"
+        # 去掉 BOM / 零宽空格 / 方向符(Cf) 与 控制字符(Cc，含 \\r \\n \\t)
+        s = "".join(
+            c for c in raw
+            if unicodedata.category(c) not in ("Cf", "Cc")
+        )
+        # 全角括号 → 半角（兼容模型偶发输出差异）
+        s = s.replace("（", "(").replace("）", ")").strip()
         if s in LABEL_ORDERS:
             return s
+        # 兜底：子串包含匹配（兼容历史/外部来源数据）
         for order_name in LABEL_ORDERS:
             if order_name in s or s in order_name:
                 return order_name
