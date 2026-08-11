@@ -290,6 +290,27 @@ def skill_download():
     )
 
 
+# Sincerely 桌面版下载：对外提供 Windows 安装包（.exe）下载（前端下载页「下载」按钮指向此接口）。
+# 文件路径可在 gateway_config.yaml 用 sincerely_installer_path 配置；相对路径按 backend 目录解析，默认 backend/Sincerely-Setup.exe。
+def _resolve_sincerely_installer_path() -> Path:
+    p = Path(CONFIG.get("sincerely_installer_path") or "downloads/Sincerely-Setup.exe")
+    if not p.is_absolute():
+        p = (ROOT / p).resolve()
+    return p
+
+
+@app.get("/api/v1/sincerely/download")
+def sincerely_download():
+    path = _resolve_sincerely_installer_path()
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail={"reason": "sincerely_installer_not_found"})
+    return FileResponse(
+        path=str(path),
+        media_type="application/octet-stream",
+        filename="Sincerely-Setup.exe",
+    )
+
+
 @app.post("/admin/issue")
 def admin_issue(body: dict, admin_secret: str = Header(None)):
     if admin_secret != ADMIN_SECRET:

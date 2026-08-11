@@ -12,6 +12,11 @@ public_base_url: "https://sincerelytuner.cloud:8080"
 # 相对路径按 backend 目录解析；留空则默认 backend/skill.zip。把 skill.zip 放到该路径即可。
 skill_zip_path: "skill.zip"
 
+# Sincerely 桌面安装版下载文件：GET /api/v1/sincerely/download 会返回该文件（前端下载页按钮指向此接口）。
+# 相对路径按 backend 目录解析；留空则默认 backend/downloads/Sincerely-Setup.exe。
+# 把 Windows 安装包（NSIS .exe，约 536MB / v0.0.93）放到该路径即可；下载名见 sincerely_installer_filename。
+sincerely_installer_path: "Sincerely-Setup.exe"
+
 # 跨域来源（CORS）：前端静态页（Cloudflare Pages，域名不同源）JS 调用公开签发接口 /api/v1/issue 所需。
 # 删掉此行或留空 = 允许所有来源（公开接口本就无口令，可接受）；要收紧则填具体来源列表，例如：
 # cors_allowed_origins:
