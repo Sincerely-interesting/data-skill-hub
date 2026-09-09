@@ -43,27 +43,46 @@
 
 ```
 ecommerce-multimodal-material-processor/
-├── src/ecommerce_processor/          # 核心处理模块
-│   ├── downloader.py                 # 素材下载 + 并发控制
-│   ├── labeler.py                    # AI标注引擎(多Provider)
-│   ├── archiver.py                   # 归档报告生成
-│   ├── exporter.py                   # 导出服务
-│   ├── video_utils.py                # 视频处理工具
-│   ├── config.py                     # 配置管理(Pydantic)
-│   └── deps_checker.py               # 环境依赖检查
-├── run_pipeline.py                   # 统一CLI入口(5个子命令)
-├── requirements.txt                  # Python依赖
-├── .env.example                      # 环境变量模板
-├── examples/
-│   └── demo-conversation.md          # 使用示例对话
-├── references/
-│   ├── architecture-guide.md         # 架构设计文档
-│   ├── mcp-implementation-guide.md   # MCP协议实现指南
-│   ├── auto-collection-roadmap.md    # 自动采集路线图
-│   └── labeling-criteria.md          # 标注标准规范
-├── SKILL.md                          # Skill定义文件(核心)
-├── README.md                         # 项目说明文档
-└── LICENSE                           # MIT许可证
+├── src/ecommerce_processor/              # 核心处理模块（v1）
+│   ├── config.py                         # 配置管理(Pydantic)
+│   ├── labeler.py                        # AI标注引擎(多Provider)
+│   ├── archiver.py                       # 归档报告生成
+│   ├── exporter.py                       # 导出服务
+│   ├── downloader.py                     # 素材下载 + 并发控制
+│   ├── video_utils.py                    # 视频处理工具
+│   ├── mcp_client.py                     # MCP协议客户端
+│   ├── api_service.py                    # REST API服务(开发中)
+│   ├── reporter.py                       # 报告生成
+│   ├── deps_checker.py                   # 环境依赖检查
+│   ├── prompts/                          # 提示词模板
+│   ├── references/                       # 标注标准文档
+│   └── docs/                             # 模块内文档
+├── separation_v2/                        # V2分离架构（前后端分离）
+│   ├── backend/                          # 后端服务
+│   │   ├── engine/                       # 核心引擎
+│   │   ├── gateway.py                    # API网关
+│   │   ├── prompts/                      # 提示词
+│   │   ├── references/                   # 标注标准
+│   │   ├── docs/                         # 归档模板
+│   │   ├── static/                       # 静态资源
+│   │   └── requirements_server.txt       # 服务端依赖
+│   ├── docs/                             # V2架构文档
+│   └── thin_shell/                       # 轻量壳层
+├── docs/                                 # 项目文档
+│   ├── architecture-guide.md             # 架构设计文档
+│   ├── mcp-implementation-guide.md       # MCP协议实现指南
+│   ├── auto-collection-roadmap.md        # 自动采集路线图
+│   └── demo-conversation.md              # 使用示例对话
+├── run_pipeline.py                       # 统一CLI入口(5个子命令)
+├── requirements.txt                      # Python依赖
+├── setup.py                              # 安装脚本
+├── install.bat / install.sh              # 一键安装脚本
+├── INSTALL_GUIDE.md                      # 安装指南
+├── LMSTUDIO_CONFIG_GUIDE.md              # LM Studio配置指南
+├── .env.example                          # 环境变量模板
+├── SKILL.md                              # Skill定义文件(核心)
+├── LICENSE                               # MIT许可证
+└── README.md                             # 项目说明文档
 ```
 
 ---
@@ -74,8 +93,8 @@ ecommerce-multimodal-material-processor/
 
 ```bash
 # 克隆项目
-git clone <your-repo-url>
-cd ecommerce-multimodal-material-processor
+git clone https://github.com/Sincerely-interesting/data-skill-hub.git
+cd data-skill-hub/ecommerce-multimodal-material-processor
 
 # 创建虚拟环境(推荐)
 python -m venv venv
@@ -106,7 +125,7 @@ MINIMAX_API_KEY=your_minimax_api_key_here
 | Gemini | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/) |
 | MiniMax | `MINMAX_API_KEY` | [MiniMax开放平台](https://platform.minimaxi.com/) |
 | Kimi | `KIMI_API_KEY` | [Moonshot AI](https://platform.moonshot.cn/) |
-| MINICPM | `MINICPM_API_KEY` | [MiniCPM](https://www.minicpm.info/) |
+| MINICPM | `MINICPM_API_KEY` | [MiniCPM](https://platform.modelbest.cn/console) |
 | Paddle | `PADDLE_API_KEY` | [百度飞桨](https://www.paddlepaddle.org.cn/) |
 
 ### Step 3: 环境检查
@@ -167,6 +186,298 @@ python run_pipeline.py export-cache \
 python run_pipeline.py download --local-dir /path/to/your/materials
 python run_pipeline.py label --provider gemini --materials-dir downloaded_materials
 python run_pipeline.py export-cache --format excel
+```
+
+---
+
+##  本地模型部署示例（MiniCPM-v-4.6）
+
+本项目支持对接本地部署的视觉大模型，无需依赖云端 API。以下以 **MiniCPM-v-4.6** 为例，演示完整的本地部署流程。
+
+### 前置要求
+
+| 资源 | 最低配置 | 推荐配置 |
+|------|----------|----------|
+| GPU | NVIDIA RTX 3090 (24GB) | NVIDIA RTX 4090 (24GB) 或 A100 (40GB+) |
+| 内存 | 16GB | 32GB+ |
+| 存储 | 20GB（模型下载） | 50GB+ SSD |
+| CUDA | 11.8+ | 12.1+ |
+
+### Step 1: 安装 vLLM
+
+```bash
+# 创建独立的虚拟环境
+python -m venv vllm-env
+source vllm-env/bin/activate  # Linux/macOS
+# 或 vllm-env\Scripts\activate  # Windows
+
+# 安装 vLLM（支持 MiniCPM 系列）
+pip install vllm
+
+# 如果使用 Windows，建议使用 WSL2 或 Docker
+# Docker 方式：
+# docker pull vllm/vllm-openai:latest
+```
+
+### Step 2: 下载并启动 MiniCPM-v-4.6 服务
+
+**方式一：直接使用 vLLM 启动（推荐）**
+
+```bash
+# 启动 OpenAI-compatible API 服务
+python -m vllm.entrypoints.openai.api_server \
+    --model openbmb/MiniCPM-o-2_6 \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --trust-remote-code \
+    --dtype auto \
+    --max-model-len 4096 \
+    --gpu-memory-utilization 0.9 \
+    --chat-template-content-format openai
+```
+
+**方式二：使用 Docker 启动**
+
+```bash
+docker run -d \
+    --name minicpm-server \
+    --gpus all \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -p 8000:8000 \
+    vllm/vllm-openai:latest \
+    --model openbmb/MiniCPM-o-2_6 \
+    --trust-remote-code \
+    --dtype auto \
+    --max-model-len 4096 \
+    --gpu-memory-utilization 0.9
+```
+
+**方式三：使用官方 Transformers 部署**
+
+```bash
+# 安装依赖
+pip install transformers torch accelerate
+
+# 创建启动脚本 serve_minicpm.py
+cat > serve_minicpm.py << 'EOF'
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from fastapi import FastAPI
+from pydantic import BaseModel
+import uvicorn
+
+app = FastAPI()
+
+# 加载模型
+model_path = "openbmb/MiniCPM-o-2_6"
+tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_path,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+    trust_remote_code=True
+)
+
+class ChatRequest(BaseModel):
+    model: str
+    messages: list
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatRequest):
+    # 实现 OpenAI-compatible 接口
+    messages = request.messages
+    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    with torch.no_grad():
+        outputs = model.generate(**inputs, max_new_tokens=2048)
+
+    response = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+
+    return {
+        "choices": [{"message": {"content": response, "role": "assistant"}}],
+        "model": model_path,
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    }
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+EOF
+
+python serve_minicpm.py
+```
+
+### Step 3: 验证服务启动
+
+```bash
+# 测试文本对话
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openbmb/MiniCPM-o-2_6",
+    "messages": [
+      {"role": "user", "content": "你好，请介绍一下你自己"}
+    ]
+  }'
+
+# 测试视觉理解（使用本地图片）
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openbmb/MiniCPM-o-2_6",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "请描述这张图片的内容"},
+          {"type": "image_url", "image_url": {"url": "file:///path/to/test.jpg"}}
+        ]
+      }
+    ]
+  }'
+```
+
+**预期输出**：
+```json
+{
+  "id": "chatcmpl-xxx",
+  "object": "chat.completion",
+  "created": 1234567890,
+  "model": "openbmb/MiniCPM-o-2_6",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "你好！我是 MiniCPM-v-4.6，一个由面壁智能开发的多模态大语言模型..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 50,
+    "total_tokens": 60
+  }
+}
+```
+
+### Step 4: 修改项目配置
+
+编辑 `separation_v2/backend/.env` 文件，将配置指向本地服务：
+
+```env
+# ==================== 本地 MiniCPM-v-4.6 配置 ====================
+
+# VLM 视觉打标（本地部署）
+VLM_BASE_URL=http://localhost:8000/v1
+VLM_API_KEY=not-needed
+VLM_MODEL=openbmb/MiniCPM-o-2_6
+
+# LLM 文本生成（本地部署，与 VLM 使用同一服务）
+LLM_BASE_URL=http://localhost:8000/v1
+LLM_API_KEY=not-needed
+LLM_MODEL=openbmb/MiniCPM-o-2_6
+
+# 视频处理格式（本地部署必须使用 minicpm_base64）
+VIDEO_PAYLOAD_FORMAT=minicpm_base64
+
+# 媒体基础 URL（本地部署时留空，使用 file:// 协议）
+MEDIA_BASE_URL=
+
+# 请求体限制（本地部署可以适当放宽）
+MAX_REQUEST_MB=50
+AUTO_COMPRESS_OVERSIZE=true
+FFMPEG_PATH=
+
+# 归档模板
+ARCHIVE_TEMPLATE=storyboard
+```
+
+### Step 5: 运行项目
+
+```bash
+# 切换到项目目录
+cd separation_v2/backend
+
+# 环境检查
+python run_pipeline.py doctor
+
+# 使用本地模型进行打标
+python run_pipeline.py label \
+    --provider minicpm \
+    --materials-dir downloaded_materials \
+    --batch-size 3 \
+    --batch-delay 10 \
+    --workers 2
+
+# 生成归档报告
+python run_pipeline.py archive --materials-dir downloaded_materials
+
+# 导出 Excel
+python run_pipeline.py export-cache --format excel
+```
+
+### 本地部署 vs 云端 API 对比
+
+| 特性 | 本地部署（MiniCPM-v-4.6） | 云端 API（modelbest.cn） |
+|------|---------------------------|--------------------------|
+| **成本** | 仅硬件成本，无限次调用 | 按 token/次数计费 |
+| **延迟** | 首次加载慢，后续推理快（取决于 GPU） | 稳定网络延迟 |
+| **隐私** | 数据完全本地，无泄露风险 | 数据传输到云端 |
+| **可用性** | 依赖本地硬件稳定性 | 依赖服务商 SLA |
+| **模型版本** | 手动更新，可锁定版本 | 自动更新，可能不兼容 |
+| **并发能力** | 受限于 GPU 显存 | 通常支持高并发 |
+
+### 性能调优建议
+
+```env
+# 1. 降低并发避免显存溢出（单卡 24GB 推荐）
+DEFAULT_WORKERS=1
+DEFAULT_BATCH_SIZE=2
+
+# 2. 增加超时时间（本地首次推理可能较慢）
+VLM_TIMEOUT_MS=600000
+LLM_TIMEOUT_MS=600000
+
+# 3. 关闭自动压缩（本地无请求体大小限制，可节省 CPU）
+AUTO_COMPRESS_OVERSIZE=false
+
+# 4. 如果有多张 GPU，可启动多个实例并用负载均衡
+# GPU 0: --port 8000
+# GPU 1: --port 8001
+# 然后在 .env 中配置 VLM_BASE_URL=http://localhost:8000/v1
+```
+
+### 常见问题排查
+
+**Q1: 启动时报错 `CUDA out of memory`**
+```bash
+# 降低 GPU 内存占用
+--gpu-memory-utilization 0.8
+--max-model-len 2048  # 减少上下文长度
+--dtype half          # 使用 FP16 而非 BF16
+```
+
+**Q2: 服务启动成功但返回 404**
+```bash
+# 确认模型名称与 vLLM 加载的一致
+curl http://localhost:8000/v1/models  # 查看已加载的模型列表
+```
+
+**Q3: 视频处理特别慢**
+```bash
+# 本地视频处理需要 base64 编码，大视频会很慢
+# 解决方案：降低视频分辨率或裁剪长度
+--max-model-len 2048  # 限制输入长度
+```
+
+**Q4: Windows 下 vLLM 安装失败**
+```bash
+# 推荐使用 WSL2 或 Docker
+# WSL2 安装步骤：
+wsl --install
+# 然后在 WSL2 中按照 Linux 步骤安装
 ```
 
 ---
@@ -483,8 +794,8 @@ export LOG_LEVEL=DEBUG  # DEBUG/INFO/WARNING/ERROR
 
 ```bash
 # Fork并克隆仓库
-git clone https://github.com/your-username/ecommerce-multimodal-material-processor.git
-cd ecommerce-multimodal-material-processor
+git clone https://github.com/Sincerely-interesting/data-skill-hub.git
+cd data-skill-hub/ecommerce-multimodal-material-processor
 
 # 创建特性分支
 git checkout -b feature/new-provider
@@ -547,15 +858,12 @@ copies or substantial portions of the Software.
 
 - **AI Providers**: Google(Gemini), MiniMax, Moonshot(Kimi), MiniCPM, Baidu(Paddle)
 - **开源社区**: OpenAI(httpx), HuggingFace(sentence-transformers), LanceDB
-- **灵感来源**: [ai-content-realize](https://github.com/your-org/ai-content-realize) 项目
 
 ---
 
-##  联系方式
+##  联系我们
 
-- **Issue反馈**: [GitHub Issues](https://github.com/your-org/ecommerce-multimodal-material-processor/issues)
-- **讨论交流**: [GitHub Discussions](https://github.com/your-org/ecommerce-multimodal-material-processor/discussions)
-- **邮件联系**: team@example.com
+- **GitHub Organization**: [Sincerely-interesting](https://github.com/Sincerely-interesting)
 
 ---
 
