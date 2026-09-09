@@ -196,11 +196,11 @@ python run_pipeline.py export-cache --format excel
 
 ### 前置要求
 
-| 资源 | 最低配置 | 推荐配置 |
+| 资源 | 基础配置 | 推荐配置 |
 |------|----------|----------|
-| GPU | NVIDIA RTX 3090 (24GB) | NVIDIA RTX 4090 (24GB) 或 A100 (40GB+) |
-| 内存 | 16GB | 32GB+ |
-| 存储 | 20GB（模型下载） | 50GB+ SSD |
+| GPU | NVIDIA GTX 1080 Ti (11GB) | NVIDIA RTX 3090/4090 (24GB) |
+| 内存 | 8GB | 16GB+ |
+| 存储 | 15GB（模型下载） | 30GB+ SSD |
 | CUDA | 11.8+ | 12.1+ |
 
 ### Step 1: 安装 vLLM
