@@ -21,7 +21,7 @@
 - **CLI统一入口**: 5个核心命令(doctor/download/label/archive/export)
 
 ###  多Provider支持
-- **8种AI Provider**: Gemini/MiniMax/Kimi/MINICPM/Paddle等主流视觉模型
+- **8种AI Provider**: Gemini / MiniMax / Kimi / MiniCPM / Paddle / 自定义端点等
 - **智能路由**: JSON配置 + 自动fallback机制
 - **灵活切换**: 10s/20s/30s/60s多档延迟配置
 - **成本优化**: 按需选择,平衡质量与成本
@@ -76,10 +76,13 @@ ecommerce-multimodal-material-processor/
 ├── run_pipeline.py                       # 统一CLI入口(5个子命令)
 ├── requirements.txt                      # Python依赖
 ├── setup.py                              # 安装脚本
-├── install.bat / install.sh              # 一键安装脚本
+├── install.bat                           # Windows一键安装脚本
+├── install.sh                            # Linux/macOS一键安装脚本
 ├── INSTALL_GUIDE.md                      # 安装指南
 ├── LMSTUDIO_CONFIG_GUIDE.md              # LM Studio配置指南
 ├── .env.example                          # 环境变量模板
+├── .env                                  # 本地环境变量（不提交）
+├── .gitignore                            # Git忽略规则
 ├── SKILL.md                              # Skill定义文件(核心)
 ├── LICENSE                               # MIT许可证
 └── README.md                             # 项目说明文档
@@ -120,13 +123,14 @@ MINIMAX_API_KEY=your_minimax_api_key_here
 
 **支持的Provider**:
 
-| Provider | 环境变量 | 获取地址 |
-|----------|----------|----------|
-| Gemini | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/) |
-| MiniMax | `MINMAX_API_KEY` | [MiniMax开放平台](https://platform.minimaxi.com/) |
-| Kimi | `KIMI_API_KEY` | [Moonshot AI](https://platform.moonshot.cn/) |
-| MINICPM | `MINICPM_API_KEY` | [MiniCPM](https://platform.modelbest.cn/console) |
-| Paddle | `PADDLE_API_KEY` | [百度飞桨](https://www.paddlepaddle.org.cn/) |
+| Provider | CLI参数 | 环境变量 | 获取地址 |
+|----------|---------|----------|----------|
+| Gemini | `gemini` | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/) |
+| MiniMax | `minmax` | `MINMAX_API_KEY` | [MiniMax开放平台](https://platform.minimaxi.com/) |
+| Kimi | `kimi` | `KIMI_API_KEY` | [Moonshot AI](https://platform.moonshot.cn/) |
+| MiniCPM | `minicpm` | `MINICPM_API_KEY` | [MiniCPM](https://platform.modelbest.cn/console) |
+| Paddle | `paddle` | `PADDLE_API_KEY` | [百度飞桨](https://www.paddlepaddle.org.cn/) |
+| 自定义端点 | `custom_minmax` | `CUSTOM_MINMAX_API_KEY` | 任意 OpenAI-compatible 端点 |
 
 ### Step 3: 环境检查
 
@@ -146,7 +150,7 @@ python run_pipeline.py doctor
  API Keys:
     gemini: 已配置
     minmax: 未配置 (可选)
- kimi: 未配置 (可选)
+    kimi: 未配置 (可选)
  输出目录权限: 正常
  缓存目录: ./cache (已创建)
 
@@ -226,7 +230,7 @@ pip install vllm
 ```bash
 # 启动 OpenAI-compatible API 服务
 python -m vllm.entrypoints.openai.api_server \
-    --model openbmb/MiniCPM-o-2_6 \
+    --model openbmb/MiniCPM-V-4_6 \
     --host 0.0.0.0 \
     --port 8000 \
     --trust-remote-code \
@@ -245,23 +249,24 @@ docker run -d \
     -v ~/.cache/huggingface:/root/.cache/huggingface \
     -p 8000:8000 \
     vllm/vllm-openai:latest \
-    --model openbmb/MiniCPM-o-2_6 \
+    --model openbmb/MiniCPM-V-4_6 \
     --trust-remote-code \
     --dtype auto \
     --max-model-len 4096 \
     --gpu-memory-utilization 0.9
 ```
 
-**方式三：使用官方 Transformers 部署**
+**方式三：使用官方 Transformers 部署（Linux/macOS）**
 
 ```bash
 # 安装依赖
-pip install transformers torch accelerate
+pip install transformers torch accelerate fastapi uvicorn pydantic
 
-# 创建启动脚本 serve_minicpm.py
+# 创建启动脚本 serve_minicpm.py（以下为 Linux/macOS 的 heredoc 语法）
+# Windows 用户请手动创建该文件，内容如下
 cat > serve_minicpm.py << 'EOF'
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
@@ -269,14 +274,15 @@ import uvicorn
 app = FastAPI()
 
 # 加载模型
-model_path = "openbmb/MiniCPM-o-2_6"
+model_path = "openbmb/MiniCPM-V-4_6"
 tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained(
+model = AutoModel.from_pretrained(
     model_path,
     torch_dtype=torch.bfloat16,
     device_map="auto",
     trust_remote_code=True
 )
+model.eval()
 
 class ChatRequest(BaseModel):
     model: str
@@ -314,7 +320,7 @@ python serve_minicpm.py
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "openbmb/MiniCPM-o-2_6",
+    "model": "openbmb/MiniCPM-V-4_6",
     "messages": [
       {"role": "user", "content": "你好，请介绍一下你自己"}
     ]
@@ -324,7 +330,7 @@ curl http://localhost:8000/v1/chat/completions \
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "openbmb/MiniCPM-o-2_6",
+    "model": "openbmb/MiniCPM-V-4_6",
     "messages": [
       {
         "role": "user",
@@ -343,7 +349,7 @@ curl http://localhost:8000/v1/chat/completions \
   "id": "chatcmpl-xxx",
   "object": "chat.completion",
   "created": 1234567890,
-  "model": "openbmb/MiniCPM-o-2_6",
+  "model": "openbmb/MiniCPM-V-4_6",
   "choices": [
     {
       "index": 0,
@@ -372,12 +378,12 @@ curl http://localhost:8000/v1/chat/completions \
 # VLM 视觉打标（本地部署）
 VLM_BASE_URL=http://localhost:8000/v1
 VLM_API_KEY=not-needed
-VLM_MODEL=openbmb/MiniCPM-o-2_6
+VLM_MODEL=openbmb/MiniCPM-V-4_6
 
 # LLM 文本生成（本地部署，与 VLM 使用同一服务）
 LLM_BASE_URL=http://localhost:8000/v1
 LLM_API_KEY=not-needed
-LLM_MODEL=openbmb/MiniCPM-o-2_6
+LLM_MODEL=openbmb/MiniCPM-V-4_6
 
 # 视频处理格式（本地部署必须使用 minicpm_base64）
 VIDEO_PAYLOAD_FORMAT=minicpm_base64
@@ -397,13 +403,13 @@ ARCHIVE_TEMPLATE=storyboard
 ### Step 5: 运行项目
 
 ```bash
-# 切换到项目目录
-cd separation_v2/backend
+# 确保在项目根目录（run_pipeline.py 所在位置）
+cd ecommerce-multimodal-material-processor
 
 # 环境检查
 python run_pipeline.py doctor
 
-# 使用本地模型进行打标
+# 使用本地模型进行打标（--provider minicpm 会读取 .env 中的 VLM_BASE_URL）
 python run_pipeline.py label \
     --provider minicpm \
     --materials-dir downloaded_materials \
@@ -543,7 +549,7 @@ python run_pipeline.py label \
 |------|-------------|------|
 | 大批量快速处理 | minicpm | 速度快、成本低 |
 | 高精度要求 | gemini | 视觉理解能力强 |
-| 中文场景 | minimax/kimi | 中文优化好 |
+| 中文场景 | minmax/kimi | 中文优化好 |
 | 成本敏感 | paddle | 性价比高 |
 
 ---
@@ -672,7 +678,7 @@ pip install faster-whisper
 
 ```bash
 # .env 配置
-SMB_SERVER=dewu-server
+SMB_SERVER=your-server-name
 SMB_SHARE=materials
 SMB_USER=your_username
 SMB_PASS=your_password
@@ -680,7 +686,7 @@ SMB_PASS=your_password
 # 执行同步
 python run_pipeline.py sync-smb \
   --source material_archives \
-  --dest "\\dewu-server\\materials\\labeled" \
+  --dest "\\your-server-name\\materials\\labeled" \
   --include "*.md,*.json"
 ```
 
@@ -738,12 +744,6 @@ nohup python run_pipeline.py label --provider gemini > log.txt 2>&1 &
 ```bash
 # 完整环境检查
 python run_pipeline.py doctor
-
-# 测试单个Provider连通性
-python test_deps.py --provider gemini
-
-# 验证安装完整性
-python verify_installation.py
 ```
 
 ---
@@ -835,22 +835,6 @@ flake8 src/
 ##  许可证
 
 本项目采用 [MIT License](./LICENSE) 开源协议。
-
-```
-MIT License
-
-Copyright (c) 2026 AI Content Realize Team
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-```
 
 ---
 
